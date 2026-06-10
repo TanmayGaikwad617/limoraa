@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "ContentCategorize",
+    "slug": "contentcategorize",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#efe9dc"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#efe9dc"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
