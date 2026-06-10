@@ -1,0 +1,29 @@
+{
+  "name": "contentcategorize-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "worker": "tsx watch src/worker.ts",
+    "worker:start": "node dist/worker.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "*",
+    "@fastify/sensible": "*",
+    "@supabase/supabase-js": "*",
+    "dotenv": "*",
+    "fastify": "*",
+    "pg": "*",
+    "pg-boss": "*",
+    "zod": "*"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "@types/pg": "^8.20.0",
+    "tsx": "*",
+    "typescript": "*"
+  }
+}
