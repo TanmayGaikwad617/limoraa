@@ -1,0 +1,151 @@
+import type { ParsedVideoMetadata } from "./types.js";
+import { env } from "../../config/env.js";
+
+type YouTubeVideoApiResponse = {
+  items?: Array<{
+    id?: string;
+    snippet?: {
+      title?: string | null;
+      description?: string | null;
+      channelTitle?: string | null;
+      thumbnails?: {
+        high?: { url?: string | null };
+        medium?: { url?: string | null };
+      } | null;
+      tags?: string[] | null;
+      defaultAudioLanguage?: string | null;
+      defaultLanguage?: string | null;
+    } | null;
+    contentDetails?: {
+      duration?: string | null;
+    } | null;
+  }>;
+};
+
+export function extractYouTubeVideoId(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const host = url.hostname.replace(/^m\./, "").replace(/^www\./, "");
+
+    if (host === "youtu.be") {
+      const videoId = url.pathname.split("/").filter(Boolean)[0] ?? "";
+      return videoId || null;
+    }
+
+    if (host.endsWith("youtube.com")) {
+      if (url.pathname.startsWith("/watch")) {
+        const videoId = url.searchParams.get("v");
+        return videoId?.trim() || null;
+      }
+
+      if (url.pathname.startsWith("/shorts/")) {
+        const videoId = url.pathname.split("/").filter(Boolean)[1] ?? "";
+        return videoId || null;
+      }
+    }
+
+    return null;
+  } catch {
+    return trimmed;
+  }
+}
+
+export function parseDuration(iso: string): number | null {
+  const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso.trim());
+  if (!match) {
+    return null;
+  }
+
+  const hours = Number.parseInt(match[1] ?? "0", 10);
+  const minutes = Number.parseInt(match[2] ?? "0", 10);
+  const seconds = Number.parseInt(match[3] ?? "0", 10);
+
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function getThumbnailUrl(snippet: NonNullable<NonNullable<YouTubeVideoApiResponse["items"]>[number]["snippet"]>): string | null {
+  return snippet.thumbnails?.high?.url ?? snippet.thumbnails?.medium?.url ?? null;
+}
+
+export async function parseYouTube(urlOrId: string): Promise<ParsedVideoMetadata | null> {
+  const videoId = extractYouTubeVideoId(urlOrId);
+  if (!videoId) {
+    return null;
+  }
+
+  const apiKey = env.YOUTUBE_API_KEY?.trim();
+  if (!apiKey) {
+    console.warn("YOUTUBE_API_KEY is not set");
+    return null;
+  }
+
+  const endpoint = new URL("https://www.googleapis.com/youtube/v3/videos");
+  endpoint.searchParams.set("part", "snippet,contentDetails");
+  endpoint.searchParams.set("id", videoId);
+  endpoint.searchParams.set("key", apiKey);
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint);
+  } catch (error) {
+    console.warn(
+      `Failed to fetch YouTube video metadata for ${videoId}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return null;
+  }
+
+  if (!response.ok) {
+    if (response.status === 403) {
+      console.error(`YouTube API request failed with status 403 for video ${videoId}`);
+      return null;
+    }
+
+    if (response.status >= 500) {
+      console.error(`YouTube API request failed with status ${response.status} for video ${videoId}`);
+      return null;
+    }
+
+    if (response.status >= 400) {
+      console.warn(`YouTube API request failed with status ${response.status} for video ${videoId}`);
+      return null;
+    }
+  }
+
+  let payload: YouTubeVideoApiResponse;
+  try {
+    payload = (await response.json()) as YouTubeVideoApiResponse;
+  } catch (error) {
+    console.warn(
+      `Failed to parse YouTube API response for ${videoId}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return null;
+  }
+
+  const item = payload.items?.[0];
+  if (!item) {
+    return null;
+  }
+
+  const snippet = item.snippet ?? null;
+  const contentDetails = item.contentDetails ?? null;
+
+  return {
+    platformVideoId: videoId,
+    title: snippet?.title ?? null,
+    description: snippet?.description ?? null,
+    caption: null,
+    creatorName: snippet?.channelTitle ?? null,
+    creatorHandle: null,
+    thumbnailUrl: snippet ? getThumbnailUrl(snippet) : null,
+    embedUrl: `https://www.youtube.com/embed/${videoId}`,
+    embedHtml: `<iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allowfullscreen></iframe>`,
+    durationSeconds: contentDetails?.duration ? parseDuration(contentDetails.duration) : null,
+    hashtags: Array.isArray(snippet?.tags) ? snippet.tags : [],
+    language: snippet?.defaultAudioLanguage ?? snippet?.defaultLanguage ?? null,
+  };
+}

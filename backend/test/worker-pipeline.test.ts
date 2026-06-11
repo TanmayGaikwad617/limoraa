@@ -6,7 +6,9 @@ process.env.SUPABASE_URL ??= "https://example.supabase.co";
 process.env.SUPABASE_ANON_KEY ??= "anon-key";
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= "service-role-key";
 
+const { analyzeVideoMetadata } = await import("../src/worker/analyzers/videoAnalyzer.js");
 const { buildIndexedSearchText, processIndexVideo } = await import("../src/worker/handlers/indexVideo.js");
+const { processAnalyzeVideo } = await import("../src/worker/handlers/analyzeVideo.js");
 const {
   evaluateSmartCollectionRule,
   evaluateSmartCollectionRules,
@@ -22,7 +24,6 @@ const baseVideo = {
   analysis: {
     topic: "Technology",
     vertical_fields_json: {
-      category: "Technology",
       summary: "Stub summary",
     },
   },
@@ -47,7 +48,6 @@ test("buildIndexedSearchText lowercases, deduplicates, and ignores null values",
     analysis: {
       topic: "AI",
       vertical_fields_json: {
-        category: "Technology",
         summary: "Stub summary",
       },
     },
@@ -83,6 +83,310 @@ test("processIndexVideo enqueues refresh_smart_collections", async () => {
 
   assert.equal(searchText.includes("title"), true);
   assert.deepEqual(calls, ["update", "refresh:video_1"]);
+});
+
+test("processAnalyzeVideo returns ready and completed, and enqueues index_video", async () => {
+  const calls: string[] = [];
+  const analysis = {
+    summary: "Educational YouTube video about AI prompting basics for beginners.",
+    topic: "AI",
+    format: "tutorial",
+    intent: "teach",
+    audience: "students and learners",
+    vertical_type: "education",
+    quality_score: 88,
+    confidence: 0.82,
+    tags: ["ai", "prompt_engineering", "chatgpt", "beginners", "tutorial", "education"],
+    vertical_fields: {
+      topic_area: "ai",
+      difficulty: "beginner",
+      learning_goal: "Understand AI prompting basics",
+    },
+  } as const;
+
+  const result = await processAnalyzeVideo("video_1", {
+    loadVideo: async () => ({
+      ...baseVideo,
+      source_url: "https://www.youtube.com/shorts/abc123",
+      normalized_url: "https://www.youtube.com/shorts/abc123",
+      platform: "youtube",
+      title: "Title",
+      description: "Description",
+      caption: "Learn prompt engineering basics.",
+      creator_handle: "@creator",
+      language: "en",
+    }),
+    analyzeMetadata: async () => analysis,
+    insertVideoAnalysis: async (videoId, storedAnalysis) => {
+      calls.push(`analysis:${videoId}:${storedAnalysis.topic}:${storedAnalysis.tags.join(",")}`);
+    },
+    insertVideoTags: async (videoId, tags) => {
+      calls.push(`tags:${videoId}:${tags.join(",")}`);
+    },
+    updateVideoFinalStatus: async (videoId, summary, searchText) => {
+      calls.push(`status:${videoId}:${summary.includes("AI prompting basics")}:${searchText.toLowerCase().includes("students and learners")}`);
+    },
+    enqueueIndexVideo: async (videoId, userId) => {
+      calls.push(`index:${videoId}:${userId}`);
+    },
+  });
+
+  assert.deepEqual(result, {
+    videoId: "video_1",
+    status: "ready",
+    analysis_status: "completed",
+  });
+  assert.deepEqual(calls, [
+    "analysis:video_1:AI:ai,prompt_engineering,chatgpt,beginners,tutorial,education",
+    "tags:video_1:ai,prompt_engineering,chatgpt,beginners,tutorial,education",
+    "status:video_1:true:true",
+    "index:video_1:user_1",
+  ]);
+});
+
+test("analyzeVideoMetadata classifies educational YouTube metadata", async () => {
+  const result = await analyzeVideoMetadata(
+    {
+      title: "ChatGPT Prompt Engineering Tutorial for Beginners",
+      description: "A step-by-step guide to writing better prompts for ChatGPT and other LLMs.",
+      caption: "Learn prompt patterns, prompt structure, and beginner mistakes.",
+      hashtags: ["#ChatGPT", "#PromptEngineering", "#AITutorial"],
+      creator_name: "AI Academy",
+      creator_handle: "@aiacademy",
+      platform: "youtube",
+      language: "en",
+    },
+    { generateText: null },
+  );
+
+  assert.equal(result.topic, "AI");
+  assert.equal(result.vertical_type, "education");
+  assert.equal(result.format, "tutorial");
+  assert.equal(result.intent, "teach");
+  assert.equal(result.vertical_fields.topic_area, "ai");
+  assert.equal(result.tags.includes("promptengineering"), true);
+});
+
+test("analyzeVideoMetadata classifies beauty and fashion Instagram metadata", async () => {
+  const result = await analyzeVideoMetadata(
+    {
+      title: "Clean Girl Makeup and Minimalist Outfit Combo",
+      description: "Soft glam makeup, skincare prep, and a casual streetwear look for summer.",
+      caption: "Minimalist beauty routine with outfit details.",
+      hashtags: ["#makeup", "#streetwear", "#cleangirl"],
+      creator_name: "Style Lab",
+      creator_handle: "@stylelab",
+      platform: "instagram",
+      language: "en",
+    },
+    { generateText: null },
+  );
+
+  assert.equal(result.vertical_type, "beauty_fashion");
+  assert.equal(result.topic === "Beauty" || result.topic === "Fashion", true);
+  assert.equal(typeof result.vertical_fields.style, "string");
+  assert.equal(result.tags.some((tag) => tag.includes("makeup") || tag.includes("streetwear")), true);
+});
+
+test("analyzeVideoMetadata classifies general entertainment content conservatively", async () => {
+  const result = await analyzeVideoMetadata(
+    {
+      title: "Funny skit about roommates and late-night snacks",
+      description: "A short comedy sketch with chaotic roommate energy.",
+      caption: "",
+      hashtags: ["#comedy", "#skit"],
+      creator_name: "Laugh Track",
+      creator_handle: "@laughtrack",
+      platform: "instagram",
+      language: "en",
+    },
+    { generateText: null },
+  );
+
+  assert.equal(result.topic, "Entertainment");
+  assert.equal(result.vertical_type, "entertainment");
+  assert.equal(result.intent === "entertain" || result.intent === "inform", true);
+  assert.equal(typeof result.vertical_fields.mood, "string");
+});
+
+test("analyzeVideoMetadata uses low confidence for sparse metadata", async () => {
+  const result = await analyzeVideoMetadata(
+    {
+      title: "",
+      description: "",
+      caption: "",
+      hashtags: [],
+      creator_name: "",
+      creator_handle: "",
+      platform: "youtube",
+      language: "",
+    },
+    { generateText: null },
+  );
+
+  assert.equal(result.topic, "General");
+  assert.equal(result.confidence <= 0.3, true);
+  assert.equal(result.quality_score <= 10, true);
+});
+
+test("analyzeVideoMetadata retries once on invalid JSON and repairs successfully", async () => {
+  const prompts: string[] = [];
+  let callCount = 0;
+
+  const result = await analyzeVideoMetadata(
+    {
+      title: "Beginner JavaScript array methods explained",
+      description: "Learn map, filter, and reduce with simple examples.",
+      caption: "",
+      hashtags: ["#javascript", "#coding"],
+      creator_name: "Code Coach",
+      creator_handle: "@codecoach",
+      platform: "youtube",
+      language: "en",
+    },
+    {
+      generateText: async ({ userPrompt }) => {
+        prompts.push(userPrompt);
+        callCount += 1;
+        if (callCount === 1) {
+          return "not valid json";
+        }
+
+        return JSON.stringify({
+          summary: "Metadata suggests a beginner coding lesson on JavaScript array methods.",
+          topic: "Coding",
+          format: "tutorial",
+          intent: "teach",
+          audience: "beginners",
+          vertical_type: "education",
+          quality_score: 99,
+          confidence: 0.94,
+          tags: ["javascript", "coding", "arrays", "beginners", "tutorial"],
+          vertical_fields: {
+            topic_area: "coding",
+            difficulty: "beginner",
+            learning_goal: "Learn JavaScript array methods",
+          },
+        });
+      },
+    },
+  );
+
+  assert.equal(callCount, 2);
+  assert.equal(prompts[1]?.includes("Repair the following model output into valid JSON only."), true);
+  assert.equal(result.topic, "Coding");
+  assert.equal(result.confidence < 0.94, true);
+});
+
+test("analyzeVideoMetadata falls back safely when JSON remains invalid", async () => {
+  const result = await analyzeVideoMetadata(
+    {
+      title: "Some general post",
+      description: "",
+      caption: "",
+      hashtags: [],
+      creator_name: "",
+      creator_handle: "",
+      platform: "instagram",
+      language: "en",
+    },
+    {
+      generateText: async () => "still invalid",
+    },
+  );
+
+  assert.equal(result.topic, "General");
+  assert.equal(Array.isArray(result.tags), true);
+  assert.equal(typeof result.summary, "string");
+});
+
+test("processAnalyzeVideo removes duplicate tags before persistence", async () => {
+  const observed: string[] = [];
+
+  await processAnalyzeVideo("video_1", {
+    loadVideo: async () => ({
+      ...baseVideo,
+      source_url: "https://www.youtube.com/shorts/abc123",
+      normalized_url: "https://www.youtube.com/shorts/abc123",
+      title: "Title",
+      description: "Description",
+      caption: "",
+      creator_handle: "@creator",
+      language: "en",
+    }),
+    analyzeMetadata: async () => ({
+      summary: "A simple test video.",
+      topic: "General",
+      format: "general",
+      intent: "inform",
+      audience: "general audience",
+      vertical_type: "general",
+      quality_score: 40,
+      confidence: 0.4,
+      tags: ["AI", "ai", "#AI", "Prompt Engineering", "prompt_engineering"],
+      vertical_fields: {},
+    }),
+    insertVideoAnalysis: async (_videoId, analysis) => {
+      observed.push(`analysis:${analysis.tags.join(",")}`);
+    },
+    insertVideoTags: async (_videoId, tags) => {
+      observed.push(`tags:${tags.join(",")}`);
+    },
+    updateVideoFinalStatus: async () => {},
+    enqueueIndexVideo: async () => {},
+  });
+
+  assert.deepEqual(observed, [
+    "analysis:ai,prompt_engineering",
+    "tags:ai,prompt_engineering",
+  ]);
+});
+
+test("processAnalyzeVideo transitions status to ready on success", async () => {
+  let statusArgs: { summary: string; searchText: string } | null = null;
+
+  const result = await processAnalyzeVideo("video_1", {
+    loadVideo: async () => ({
+      ...baseVideo,
+      source_url: "https://www.youtube.com/shorts/abc123",
+      normalized_url: "https://www.youtube.com/shorts/abc123",
+      title: "Title",
+      description: "Description",
+      caption: "",
+      creator_handle: "@creator",
+      language: "en",
+    }),
+    analyzeMetadata: async () => ({
+      summary: "A production-ready metadata analysis test case.",
+      topic: "Technology",
+      format: "demo",
+      intent: "demonstrate",
+      audience: "developers and tech learners",
+      vertical_type: "education",
+      quality_score: 70,
+      confidence: 0.65,
+      tags: ["technology", "demo", "metadata", "analysis", "developers"],
+      vertical_fields: {
+        topic_area: "technology",
+        difficulty: "beginner",
+        learning_goal: "Understand metadata analysis",
+      },
+    }),
+    insertVideoAnalysis: async () => {},
+    insertVideoTags: async () => {},
+    updateVideoFinalStatus: async (_videoId, summary, searchText) => {
+      statusArgs = { summary, searchText };
+    },
+    enqueueIndexVideo: async () => {},
+  });
+
+  assert.deepEqual(result, {
+    videoId: "video_1",
+    status: "ready",
+    analysis_status: "completed",
+  });
+  assert.equal(statusArgs?.summary, "A production-ready metadata analysis test case.");
+  assert.equal(statusArgs?.searchText.includes("developers and tech learners"), true);
 });
 
 test("tag_contains match", () => {
