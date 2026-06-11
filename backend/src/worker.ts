@@ -1,13 +1,16 @@
 import "dotenv/config";
 import { env } from "./config/env.js";
-import { createBoss } from "./lib/pgboss.js";
+import { startBoss, stopBoss } from "./lib/pgboss.js";
 import { closeDb } from "./lib/db.js";
-
-const boss = createBoss();
+import { ensureWorkerQueues } from "./worker/queues.js";
+import { registerFetchMetadataHandler } from "./worker/handlers/fetchMetadata.js";
+import { registerAnalyzeVideoHandler } from "./worker/handlers/analyzeVideo.js";
+import { registerIndexVideoHandler } from "./worker/handlers/indexVideo.js";
+import { registerRefreshSmartCollectionsHandler } from "./worker/handlers/refreshSmartCollections.js";
 
 async function shutdown(signal: string): Promise<void> {
   console.log(JSON.stringify({ level: "info", signal, message: "shutting down worker" }));
-  await boss.stop();
+  await stopBoss();
   await closeDb();
 }
 
@@ -19,7 +22,12 @@ async function main(): Promise<void> {
     });
   }
 
-  await boss.start();
+  const boss = await startBoss();
+  await ensureWorkerQueues(boss);
+  await registerFetchMetadataHandler(boss);
+  await registerAnalyzeVideoHandler(boss);
+  await registerIndexVideoHandler(boss);
+  await registerRefreshSmartCollectionsHandler(boss);
   console.log(
     JSON.stringify({
       level: "info",
@@ -28,10 +36,6 @@ async function main(): Promise<void> {
       environment: env.NODE_ENV,
     }),
   );
-
-  // Job handlers will be registered here as the save/enrichment flows land.
-  // The queue foundation is in place now so the API can enqueue work without
-  // waiting for the rest of the feature set.
 }
 
 void main().catch((error) => {

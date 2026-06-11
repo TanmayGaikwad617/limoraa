@@ -8,7 +8,9 @@ export interface AuthContext {
   accessToken: string;
 }
 
-async function authenticate(request: Parameters<preHandlerHookHandler>[0]): Promise<void> {
+export async function authenticate(
+  request: Parameters<preHandlerHookHandler>[0],
+): Promise<void> {
   const authorization = request.headers.authorization;
   const bearerPrefix = "Bearer ";
 
