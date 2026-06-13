@@ -87,16 +87,6 @@ export type VideoMetadataAnalysis = {
   vertical_fields: Record<string, unknown>;
 };
 
-type AnalyzerProvider = "openai" | "claude" | "deepseek";
-
-type GenerateTextRequest = {
-  systemPrompt: string;
-  userPrompt: string;
-  jsonSchema?: Record<string, unknown>;
-};
-
-export type GenerateText = (request: GenerateTextRequest) => Promise<string>;
-
 const ALLOWED_TOPICS: VideoTopic[] = [
   "AI",
   "Technology",
@@ -204,35 +194,6 @@ const STOP_WORDS = new Set([
   "you",
   "your",
 ]);
-
-const OPENAI_JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "summary",
-    "topic",
-    "format",
-    "intent",
-    "audience",
-    "vertical_type",
-    "quality_score",
-    "confidence",
-    "tags",
-    "vertical_fields",
-  ],
-  properties: {
-    summary: { type: "string", maxLength: 200 },
-    topic: { type: "string", enum: ALLOWED_TOPICS },
-    format: { type: "string", enum: ALLOWED_FORMATS },
-    intent: { type: "string", enum: ALLOWED_INTENTS },
-    audience: { type: "string" },
-    vertical_type: { type: "string", enum: ALLOWED_VERTICAL_TYPES },
-    quality_score: { type: "number" },
-    confidence: { type: "number" },
-    tags: { type: "array", items: { type: "string" } },
-    vertical_fields: { type: "object" },
-  },
-} satisfies Record<string, unknown>;
 
 const ANALYZER_SYSTEM_PROMPT = `You analyze short-form video metadata only.
 
@@ -690,23 +651,25 @@ function sanitizeTags(tags: unknown, metadata: VideoMetadataInput): string[] {
     }
   }
 
-  const fallbackCandidates = [
-    ...metadata.hashtags,
-    ...extractCandidateTags(metadata.title),
-    ...extractCandidateTags(metadata.description),
-    ...extractCandidateTags(metadata.caption),
-    metadata.platform,
-    metadata.language,
-    metadata.creator_handle.replace(/^@/, ""),
-  ];
+  if (cleaned.length < 5) {
+    const fallbackCandidates = [
+      ...metadata.hashtags,
+      ...extractCandidateTags(metadata.title),
+      ...extractCandidateTags(metadata.description),
+      ...extractCandidateTags(metadata.caption),
+      metadata.platform,
+      metadata.language,
+      metadata.creator_handle.replace(/^@/, ""),
+    ];
 
-  for (const candidate of fallbackCandidates) {
-    if (cleaned.length >= 10) {
-      break;
-    }
+    for (const candidate of fallbackCandidates) {
+      if (cleaned.length >= 5) {
+        break;
+      }
 
-    if (candidate) {
-      pushTag(candidate);
+      if (candidate) {
+        pushTag(candidate);
+      }
     }
   }
 
@@ -846,6 +809,9 @@ function buildFallbackAnalysis(metadata: VideoMetadataInput): VideoMetadataAnaly
   };
 }
 
+const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
 function normalizeAnalysis(metadata: VideoMetadataInput, raw: Record<string, unknown>): VideoMetadataAnalysis {
   const fallback = buildFallbackAnalysis(metadata);
   const qualityScore = computeQualityScore(metadata);
@@ -866,57 +832,6 @@ function normalizeAnalysis(metadata: VideoMetadataInput, raw: Record<string, unk
     tags: sanitizeTags(raw.tags, metadata),
     vertical_fields: sanitizeVerticalFields(verticalType, raw.vertical_fields, metadata, topic),
   };
-}
-
-function getConfiguredProvider(): {
-  provider: AnalyzerProvider;
-  apiKey: string;
-  model: string;
-} | null {
-  const selectedProvider = env.AI_PROVIDER;
-
-  const configs: Array<{ provider: AnalyzerProvider; apiKey?: string; model?: string }> = [
-    {
-      provider: "openai",
-      apiKey: env.OPENAI_API_KEY,
-      model: env.AI_MODEL ?? env.OPENAI_MODEL ?? "gpt-5-mini",
-    },
-    {
-      provider: "claude",
-      apiKey: env.ANTHROPIC_API_KEY,
-      model: env.AI_MODEL ?? env.CLAUDE_MODEL ?? "claude-3-5-sonnet-latest",
-    },
-    {
-      provider: "deepseek",
-      apiKey: env.DEEPSEEK_API_KEY,
-      model: env.AI_MODEL ?? env.DEEPSEEK_MODEL ?? "deepseek-v4-flash",
-    },
-  ];
-
-  if (selectedProvider) {
-    const selected = configs.find((config) => config.provider === selectedProvider);
-    if (!selected?.apiKey || !selected.model) {
-      return null;
-    }
-
-    return {
-      provider: selected.provider,
-      apiKey: selected.apiKey,
-      model: selected.model,
-    };
-  }
-
-  for (const config of configs) {
-    if (config.apiKey && config.model) {
-      return {
-        provider: config.provider,
-        apiKey: config.apiKey,
-        model: config.model,
-      };
-    }
-  }
-
-  return null;
 }
 
 async function fetchJson(url: string, init: RequestInit): Promise<Record<string, unknown>> {
@@ -944,164 +859,66 @@ async function fetchJson(url: string, init: RequestInit): Promise<Record<string,
   }
 }
 
-function extractOpenAiText(payload: Record<string, unknown>): string {
-  if (typeof payload.output_text === "string") {
-    return payload.output_text;
-  }
+function extractGeminiText(payload: Record<string, unknown>): string {
+  const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+  const firstCandidate = readObject(candidates[0]);
+  const content = readObject(firstCandidate.content);
+  const parts = Array.isArray(content.parts) ? content.parts : [];
+  const texts: string[] = [];
 
-  const output = Array.isArray(payload.output) ? payload.output : [];
-  const parts: string[] = [];
-  for (const item of output) {
-    const record = readObject(item);
-    const content = Array.isArray(record.content) ? record.content : [];
-    for (const contentItem of content) {
-      const contentRecord = readObject(contentItem);
-      const textValue = contentRecord.text;
-      if (typeof textValue === "string") {
-        parts.push(textValue);
-      }
+  for (const part of parts) {
+    const record = readObject(part);
+    if (typeof record.text === "string") {
+      texts.push(record.text);
     }
   }
 
-  return parts.join("\n").trim();
+  return texts.join("\n").trim();
 }
 
-function extractClaudeText(payload: Record<string, unknown>): string {
-  const content = Array.isArray(payload.content) ? payload.content : [];
-  const parts: string[] = [];
-
-  for (const item of content) {
-    const record = readObject(item);
-    if (record.type === "text" && typeof record.text === "string") {
-      parts.push(record.text);
-    }
+async function generateGeminiContent(systemPrompt: string, userPrompt: string): Promise<string> {
+  if (!env.GEMINI_API_KEY) {
+    return "";
   }
 
-  return parts.join("\n").trim();
+  const payload = await fetchJson(`${GEMINI_ENDPOINT}?key=${encodeURIComponent(env.GEMINI_API_KEY)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: systemPrompt }],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: userPrompt }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 700,
+        responseMimeType: "application/json",
+      },
+    }),
+  });
+
+  return extractGeminiText(payload);
 }
 
-function extractDeepSeekText(payload: Record<string, unknown>): string {
-  const choices = Array.isArray(payload.choices) ? payload.choices : [];
-  const firstChoice = readObject(choices[0]);
-  const message = readObject(firstChoice.message);
-  return typeof message.content === "string" ? message.content : "";
-}
-
-function createGenerateText(): GenerateText | null {
-  const configured = getConfiguredProvider();
-  if (!configured) {
-    return null;
-  }
-
-  return async ({ systemPrompt, userPrompt, jsonSchema }) => {
-    switch (configured.provider) {
-      case "openai": {
-        const payload = await fetchJson("https://api.openai.com/v1/responses", {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${configured.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: configured.model,
-            input: [
-              {
-                role: "system",
-                content: [{ type: "input_text", text: systemPrompt }],
-              },
-              {
-                role: "user",
-                content: [{ type: "input_text", text: userPrompt }],
-              },
-            ],
-            text: jsonSchema
-              ? {
-                  format: {
-                    type: "json_schema",
-                    name: "video_metadata_analysis",
-                    schema: jsonSchema,
-                    strict: true,
-                  },
-                }
-              : undefined,
-            max_output_tokens: 700,
-          }),
-        });
-
-        return extractOpenAiText(payload);
-      }
-      case "claude": {
-        const payload = await fetchJson("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "x-api-key": configured.apiKey,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: configured.model,
-            system: systemPrompt,
-            max_tokens: 700,
-            temperature: 0,
-            messages: [{ role: "user", content: userPrompt }],
-          }),
-        });
-
-        return extractClaudeText(payload);
-      }
-      case "deepseek": {
-        const payload = await fetchJson("https://api.deepseek.com/chat/completions", {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${configured.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: configured.model,
-            temperature: 0,
-            response_format: { type: "json_object" },
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: userPrompt },
-            ],
-          }),
-        });
-
-        return extractDeepSeekText(payload);
-      }
-      default:
-        return "";
-    }
-  };
-}
-
-export async function analyzeVideoMetadata(
-  input: Partial<VideoMetadataInput>,
-  options?: {
-    generateText?: GenerateText | null;
-  },
-): Promise<VideoMetadataAnalysis> {
+export async function analyzeVideoMetadata(input: Partial<VideoMetadataInput>): Promise<VideoMetadataAnalysis> {
   const metadata = toMetadata(input);
   const fallback = buildFallbackAnalysis(metadata);
-  const generateText = options?.generateText ?? createGenerateText();
-
-  if (!generateText) {
+  if (!env.GEMINI_API_KEY) {
     return fallback;
   }
 
   try {
-    const rawText = await generateText({
-      systemPrompt: ANALYZER_SYSTEM_PROMPT,
-      userPrompt: buildUserPrompt(metadata),
-      jsonSchema: OPENAI_JSON_SCHEMA,
-    });
+    const rawText = await generateGeminiContent(ANALYZER_SYSTEM_PROMPT, buildUserPrompt(metadata));
     const parsed = parseJsonObject(rawText);
     if (parsed) {
       return normalizeAnalysis(metadata, parsed);
     }
 
-    const repairedText = await generateText({
-      systemPrompt: ANALYZER_SYSTEM_PROMPT,
-      userPrompt: buildRepairPrompt(rawText),
-      jsonSchema: OPENAI_JSON_SCHEMA,
-    });
+    const repairedText = await generateGeminiContent(ANALYZER_SYSTEM_PROMPT, buildRepairPrompt(rawText));
     const repaired = parseJsonObject(repairedText);
     return repaired ? normalizeAnalysis(metadata, repaired) : fallback;
   } catch (error) {

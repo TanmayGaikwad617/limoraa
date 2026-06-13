@@ -84,18 +84,11 @@ Optional platform metadata keys:
 - `YOUTUBE_API_KEY`
 - `TWITTER_BEARER_TOKEN`
 
-Optional AI metadata analyzer keys:
+AI metadata analyzer:
 
-- `AI_PROVIDER` set to `openai`, `claude`, or `deepseek`
-- `AI_MODEL`
-- `OPENAI_API_KEY`
-- `OPENAI_MODEL`
-- `ANTHROPIC_API_KEY`
-- `CLAUDE_MODEL`
-- `DEEPSEEK_API_KEY`
-- `DEEPSEEK_MODEL`
+- `GEMINI_API_KEY`
 
-If no AI provider is configured, the worker falls back to a safe conservative metadata-only analysis result.
+If `GEMINI_API_KEY` is missing, the worker falls back to a safe conservative metadata-only analysis result.
 
 ## Database Setup
 

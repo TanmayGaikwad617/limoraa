@@ -36,14 +36,7 @@ const envSchema = z.object({
   INSTAGRAM_APP_SECRET: z.string().min(1).optional(),
   YOUTUBE_API_KEY: z.string().min(1).optional(),
   TWITTER_BEARER_TOKEN: z.string().min(1).optional(),
-  AI_PROVIDER: z.enum(["openai", "claude", "deepseek"]).optional(),
-  AI_MODEL: z.string().min(1).optional(),
-  OPENAI_API_KEY: z.string().min(1).optional(),
-  OPENAI_MODEL: z.string().min(1).optional(),
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
-  CLAUDE_MODEL: z.string().min(1).optional(),
-  DEEPSEEK_API_KEY: z.string().min(1).optional(),
-  DEEPSEEK_MODEL: z.string().min(1).optional(),
+  GEMINI_API_KEY: z.string().min(1).optional(),
   CORS_ORIGIN: z.string().min(1).default("*"),
 });
 

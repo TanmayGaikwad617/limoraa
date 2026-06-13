@@ -33,12 +33,24 @@ type LoadedVideo = Pick<
 export type AnalyzeVideoInput = LoadedVideo;
 export type AnalyzeVideoDeps = {
   loadVideo: (videoId: string) => Promise<AnalyzeVideoInput | null>;
-  analyzeMetadata: (video: AnalyzeVideoInput) => Promise<VideoMetadataAnalysis>;
   insertVideoAnalysis: (videoId: string, analysis: VideoMetadataAnalysis) => Promise<void>;
   insertVideoTags: (videoId: string, tags: string[]) => Promise<void>;
   updateVideoFinalStatus: (videoId: string, summary: string, searchText: string) => Promise<void>;
   enqueueIndexVideo: (videoId: string, userId: string) => Promise<void>;
 };
+
+function toMetadataInput(video: AnalyzeVideoInput) {
+  return {
+    title: video.title ?? "",
+    description: video.description ?? "",
+    caption: video.caption ?? "",
+    hashtags: video.hashtags,
+    creator_name: video.creator_name ?? "",
+    creator_handle: video.creator_handle ?? "",
+    platform: video.platform ?? "",
+    language: video.language ?? "",
+  };
+}
 
 function buildSearchText(video: LoadedVideo, analysis: VideoMetadataAnalysis, tags: string[]): string {
   return [
@@ -132,7 +144,7 @@ export async function processAnalyzeVideo(videoId: string, deps: AnalyzeVideoDep
     };
   }
 
-  const analysis = await deps.analyzeMetadata(video);
+  const analysis = await analyzeVideoMetadata(toMetadataInput(video));
   const tags = toAiTags(analysis.tags);
 
   await deps.insertVideoAnalysis(videoId, {
@@ -163,17 +175,6 @@ export async function registerAnalyzeVideoHandler(boss: PgBoss): Promise<void> {
     await withTransaction(async (client) => {
       await processAnalyzeVideo(videoId, {
         loadVideo: async (id) => loadVideoForAnalysis(client, id),
-        analyzeMetadata: async (video) =>
-          analyzeVideoMetadata({
-            title: video.title ?? "",
-            description: video.description ?? "",
-            caption: video.caption ?? "",
-            hashtags: video.hashtags,
-            creator_name: video.creator_name ?? "",
-            creator_handle: video.creator_handle ?? "",
-            platform: video.platform ?? "",
-            language: video.language ?? "",
-          }),
         insertVideoAnalysis: async (id, analysis) => {
           await client.query(
             `

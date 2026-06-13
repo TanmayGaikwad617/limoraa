@@ -4,6 +4,9 @@ import type { PoolClient } from "pg";
 import { withTransaction } from "../../lib/db.js";
 import { hydrateVideos, type HydratedVideo, type VideoBaseRow } from "../../lib/video-records.js";
 import { ANALYZE_VIDEO_QUEUE, FETCH_METADATA_QUEUE } from "../queues.js";
+import { parseInstagram } from "../parsers/instagram.js";
+import { parseTwitter } from "../parsers/twitter.js";
+import { parseYouTube } from "../parsers/youtube.js";
 
 type FetchMetadataJob = {
   videoId: string;
@@ -84,6 +87,66 @@ function buildStubMetadata(video: LoadedVideo): StubMetadata {
   };
 
   return parsers[platform]();
+}
+
+function buildMetadataFromYouTube(video: LoadedVideo, metadata: Awaited<ReturnType<typeof parseYouTube>>): StubMetadata {
+  const fallback = buildStubMetadata(video);
+  if (!metadata) {
+    return fallback;
+  }
+
+  return {
+    title: metadata.title ?? fallback.title,
+    description: metadata.description ?? fallback.description,
+    creator_name: metadata.creatorName ?? fallback.creator_name,
+    creator_handle: metadata.creatorHandle ?? fallback.creator_handle,
+    thumbnail_url: metadata.thumbnailUrl ?? fallback.thumbnail_url,
+    embed_url: metadata.embedUrl ?? fallback.embed_url,
+    hashtags: metadata.hashtags.length > 0 ? metadata.hashtags : fallback.hashtags,
+    language: metadata.language ?? fallback.language,
+  };
+}
+
+function buildMetadataFromInstagram(
+  video: LoadedVideo,
+  metadata: Awaited<ReturnType<typeof parseInstagram>>,
+): StubMetadata {
+  const fallback = buildStubMetadata(video);
+  if (!metadata) {
+    return fallback;
+  }
+
+  return {
+    title: metadata.title ?? fallback.title,
+    description: metadata.description ?? fallback.description,
+    creator_name: metadata.creatorName ?? fallback.creator_name,
+    creator_handle: metadata.creatorHandle ?? fallback.creator_handle,
+    thumbnail_url: metadata.thumbnailUrl ?? fallback.thumbnail_url,
+    embed_url: metadata.embedUrl ?? fallback.embed_url,
+    hashtags: metadata.hashtags.length > 0 ? metadata.hashtags : fallback.hashtags,
+    language: metadata.language ?? fallback.language,
+  };
+}
+
+function buildMetadataFromTwitter(
+  video: LoadedVideo,
+  metadata: Awaited<ReturnType<typeof parseTwitter>>,
+): StubMetadata {
+  const fallback = buildStubMetadata(video);
+  if (!metadata) {
+    return fallback;
+  }
+
+  return {
+    title: metadata.title ?? fallback.title,
+    description: metadata.description ?? fallback.description,
+    creator_name: metadata.creatorName ?? fallback.creator_name,
+    creator_handle: metadata.creatorHandle ?? fallback.creator_handle,
+    thumbnail_url: metadata.thumbnailUrl ?? fallback.thumbnail_url,
+    embed_url: metadata.embedUrl ?? fallback.embed_url,
+    hashtags: metadata.hashtags.length > 0 ? metadata.hashtags : fallback.hashtags,
+    language: metadata.language ?? fallback.language,
+  };
 }
 
 async function loadVideoForMetadata(client: PoolClient, videoId: string): Promise<LoadedVideo | null> {
@@ -172,7 +235,14 @@ export async function registerFetchMetadataHandler(boss: PgBoss): Promise<void> 
           [videoId],
         );
 
-        const stubMetadata = buildStubMetadata(video);
+        const stubMetadata =
+          video.platform === "youtube"
+            ? buildMetadataFromYouTube(video, await parseYouTube(video.source_url))
+            : video.platform === "instagram"
+              ? buildMetadataFromInstagram(video, await parseInstagram(video.source_url))
+              : video.platform === "twitter" || video.platform === "x"
+                ? buildMetadataFromTwitter(video, await parseTwitter(video.source_url))
+            : buildStubMetadata(video);
         const searchText = buildSearchText([
           video.source_url,
           video.normalized_url,

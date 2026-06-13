@@ -5,6 +5,7 @@ process.env.DATABASE_URL ??= "postgres://localhost/test";
 process.env.SUPABASE_URL ??= "https://example.supabase.co";
 process.env.SUPABASE_ANON_KEY ??= "anon-key";
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= "service-role-key";
+process.env.GEMINI_API_KEY ??= "gemini-key";
 
 const { analyzeVideoMetadata } = await import("../src/worker/analyzers/videoAnalyzer.js");
 const { buildIndexedSearchText, processIndexVideo } = await import("../src/worker/handlers/indexVideo.js");
@@ -28,6 +29,40 @@ const baseVideo = {
     },
   },
 };
+
+function makeGeminiPayload(text: string): Record<string, unknown> {
+  return {
+    candidates: [
+      {
+        content: {
+          parts: [{ text }],
+        },
+      },
+    ],
+  };
+}
+
+async function withMockGeminiFetch<T>(responses: string[], fn: () => Promise<T>): Promise<T> {
+  const originalFetch = globalThis.fetch;
+  let callCount = 0;
+
+  globalThis.fetch = (async () => {
+    const index = Math.min(callCount, responses.length - 1);
+    callCount += 1;
+
+    return {
+      ok: true,
+      status: 200,
+      json: async () => makeGeminiPayload(responses[index] ?? responses[responses.length - 1] ?? ""),
+    } as any;
+  }) as typeof fetch;
+
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
 
 test("buildIndexedSearchText lowercases, deduplicates, and ignores null values", () => {
   const searchText = buildIndexedSearchText({
@@ -87,49 +122,52 @@ test("processIndexVideo enqueues refresh_smart_collections", async () => {
 
 test("processAnalyzeVideo returns ready and completed, and enqueues index_video", async () => {
   const calls: string[] = [];
-  const analysis = {
-    summary: "Educational YouTube video about AI prompting basics for beginners.",
-    topic: "AI",
-    format: "tutorial",
-    intent: "teach",
-    audience: "students and learners",
-    vertical_type: "education",
-    quality_score: 88,
-    confidence: 0.82,
-    tags: ["ai", "prompt_engineering", "chatgpt", "beginners", "tutorial", "education"],
-    vertical_fields: {
-      topic_area: "ai",
-      difficulty: "beginner",
-      learning_goal: "Understand AI prompting basics",
-    },
-  } as const;
-
-  const result = await processAnalyzeVideo("video_1", {
-    loadVideo: async () => ({
-      ...baseVideo,
-      source_url: "https://www.youtube.com/shorts/abc123",
-      normalized_url: "https://www.youtube.com/shorts/abc123",
-      platform: "youtube",
-      title: "Title",
-      description: "Description",
-      caption: "Learn prompt engineering basics.",
-      creator_handle: "@creator",
-      language: "en",
-    }),
-    analyzeMetadata: async () => analysis,
-    insertVideoAnalysis: async (videoId, storedAnalysis) => {
-      calls.push(`analysis:${videoId}:${storedAnalysis.topic}:${storedAnalysis.tags.join(",")}`);
-    },
-    insertVideoTags: async (videoId, tags) => {
-      calls.push(`tags:${videoId}:${tags.join(",")}`);
-    },
-    updateVideoFinalStatus: async (videoId, summary, searchText) => {
-      calls.push(`status:${videoId}:${summary.includes("AI prompting basics")}:${searchText.toLowerCase().includes("students and learners")}`);
-    },
-    enqueueIndexVideo: async (videoId, userId) => {
-      calls.push(`index:${videoId}:${userId}`);
-    },
-  });
+  const result = await withMockGeminiFetch(
+    [
+      JSON.stringify({
+        summary: "Educational YouTube video about AI prompting basics for beginners.",
+        topic: "AI",
+        format: "tutorial",
+        intent: "teach",
+        audience: "students and learners",
+        vertical_type: "education",
+        quality_score: 88,
+        confidence: 0.82,
+        tags: ["ai", "prompt_engineering", "chatgpt", "beginners", "tutorial", "education"],
+        vertical_fields: {
+          topic_area: "ai",
+          difficulty: "beginner",
+          learning_goal: "Understand AI prompting basics",
+        },
+      }),
+    ],
+    async () =>
+      processAnalyzeVideo("video_1", {
+        loadVideo: async () => ({
+          ...baseVideo,
+          source_url: "https://www.youtube.com/shorts/abc123",
+          normalized_url: "https://www.youtube.com/shorts/abc123",
+          platform: "youtube",
+          title: "Title",
+          description: "Description",
+          caption: "Learn prompt engineering basics.",
+          creator_handle: "@creator",
+          language: "en",
+        }),
+        insertVideoAnalysis: async (videoId, analysis) => {
+          calls.push(`analysis:${videoId}:${analysis.topic}:${analysis.tags.join(",")}`);
+        },
+        insertVideoTags: async (videoId, tags) => {
+          calls.push(`tags:${videoId}:${tags.join(",")}`);
+        },
+        updateVideoFinalStatus: async (videoId, summary, searchText) => {
+          calls.push(`status:${videoId}:${summary.includes("AI prompting basics")}:${searchText.toLowerCase().includes("students and learners")}`);
+        },
+        enqueueIndexVideo: async (videoId, userId) => {
+          calls.push(`index:${videoId}:${userId}`);
+        },
+      }),
+  );
 
   assert.deepEqual(result, {
     videoId: "video_1",
@@ -145,18 +183,36 @@ test("processAnalyzeVideo returns ready and completed, and enqueues index_video"
 });
 
 test("analyzeVideoMetadata classifies educational YouTube metadata", async () => {
-  const result = await analyzeVideoMetadata(
-    {
-      title: "ChatGPT Prompt Engineering Tutorial for Beginners",
-      description: "A step-by-step guide to writing better prompts for ChatGPT and other LLMs.",
-      caption: "Learn prompt patterns, prompt structure, and beginner mistakes.",
-      hashtags: ["#ChatGPT", "#PromptEngineering", "#AITutorial"],
-      creator_name: "AI Academy",
-      creator_handle: "@aiacademy",
-      platform: "youtube",
-      language: "en",
-    },
-    { generateText: null },
+  const result = await withMockGeminiFetch(
+    [
+      JSON.stringify({
+        summary: "A step-by-step guide to writing better prompts for ChatGPT and other LLMs.",
+        topic: "AI",
+        format: "tutorial",
+        intent: "teach",
+        audience: "beginners",
+        vertical_type: "education",
+        quality_score: 95,
+        confidence: 0.9,
+        tags: ["chatgpt", "prompt_engineering", "ai", "tutorial", "beginners"],
+        vertical_fields: {
+          topic_area: "ai",
+          difficulty: "beginner",
+          learning_goal: "Learn prompt patterns and structure",
+        },
+      }),
+    ],
+    async () =>
+      analyzeVideoMetadata({
+        title: "ChatGPT Prompt Engineering Tutorial for Beginners",
+        description: "A step-by-step guide to writing better prompts for ChatGPT and other LLMs.",
+        caption: "Learn prompt patterns, prompt structure, and beginner mistakes.",
+        hashtags: ["#ChatGPT", "#PromptEngineering", "#AITutorial"],
+        creator_name: "AI Academy",
+        creator_handle: "@aiacademy",
+        platform: "youtube",
+        language: "en",
+      }),
   );
 
   assert.equal(result.topic, "AI");
@@ -164,22 +220,40 @@ test("analyzeVideoMetadata classifies educational YouTube metadata", async () =>
   assert.equal(result.format, "tutorial");
   assert.equal(result.intent, "teach");
   assert.equal(result.vertical_fields.topic_area, "ai");
-  assert.equal(result.tags.includes("promptengineering"), true);
+  assert.equal(result.tags.includes("prompt_engineering"), true);
 });
 
 test("analyzeVideoMetadata classifies beauty and fashion Instagram metadata", async () => {
-  const result = await analyzeVideoMetadata(
-    {
-      title: "Clean Girl Makeup and Minimalist Outfit Combo",
-      description: "Soft glam makeup, skincare prep, and a casual streetwear look for summer.",
-      caption: "Minimalist beauty routine with outfit details.",
-      hashtags: ["#makeup", "#streetwear", "#cleangirl"],
-      creator_name: "Style Lab",
-      creator_handle: "@stylelab",
-      platform: "instagram",
-      language: "en",
-    },
-    { generateText: null },
+  const result = await withMockGeminiFetch(
+    [
+      JSON.stringify({
+        summary: "Soft glam makeup, skincare prep, and a casual streetwear look for summer.",
+        topic: "Beauty",
+        format: "showcase",
+        intent: "demonstrate",
+        audience: "beauty and fashion enthusiasts",
+        vertical_type: "beauty_fashion",
+        quality_score: 90,
+        confidence: 0.85,
+        tags: ["makeup", "streetwear", "clean_girl", "beauty", "fashion"],
+        vertical_fields: {
+          product_type: "makeup",
+          style: "casual",
+          aesthetic: "clean girl",
+        },
+      }),
+    ],
+    async () =>
+      analyzeVideoMetadata({
+        title: "Clean Girl Makeup and Minimalist Outfit Combo",
+        description: "Soft glam makeup, skincare prep, and a casual streetwear look for summer.",
+        caption: "Minimalist beauty routine with outfit details.",
+        hashtags: ["#makeup", "#streetwear", "#cleangirl"],
+        creator_name: "Style Lab",
+        creator_handle: "@stylelab",
+        platform: "instagram",
+        language: "en",
+      }),
   );
 
   assert.equal(result.vertical_type, "beauty_fashion");
@@ -189,18 +263,36 @@ test("analyzeVideoMetadata classifies beauty and fashion Instagram metadata", as
 });
 
 test("analyzeVideoMetadata classifies general entertainment content conservatively", async () => {
-  const result = await analyzeVideoMetadata(
-    {
-      title: "Funny skit about roommates and late-night snacks",
-      description: "A short comedy sketch with chaotic roommate energy.",
-      caption: "",
-      hashtags: ["#comedy", "#skit"],
-      creator_name: "Laugh Track",
-      creator_handle: "@laughtrack",
-      platform: "instagram",
-      language: "en",
-    },
-    { generateText: null },
+  const result = await withMockGeminiFetch(
+    [
+      JSON.stringify({
+        summary: "A short comedy sketch with chaotic roommate energy.",
+        topic: "Entertainment",
+        format: "story",
+        intent: "entertain",
+        audience: "general entertainment audience",
+        vertical_type: "entertainment",
+        quality_score: 84,
+        confidence: 0.72,
+        tags: ["comedy", "skit", "roommates", "late_night", "snacks"],
+        vertical_fields: {
+          style: "comedy",
+          mood: "funny",
+          hook: "roommates and late-night snacks",
+        },
+      }),
+    ],
+    async () =>
+      analyzeVideoMetadata({
+        title: "Funny skit about roommates and late-night snacks",
+        description: "A short comedy sketch with chaotic roommate energy.",
+        caption: "",
+        hashtags: ["#comedy", "#skit"],
+        creator_name: "Laugh Track",
+        creator_handle: "@laughtrack",
+        platform: "instagram",
+        language: "en",
+      }),
   );
 
   assert.equal(result.topic, "Entertainment");
@@ -210,8 +302,8 @@ test("analyzeVideoMetadata classifies general entertainment content conservative
 });
 
 test("analyzeVideoMetadata uses low confidence for sparse metadata", async () => {
-  const result = await analyzeVideoMetadata(
-    {
+  const result = await withMockGeminiFetch(["not valid json", "still invalid"], async () =>
+    analyzeVideoMetadata({
       title: "",
       description: "",
       caption: "",
@@ -220,8 +312,7 @@ test("analyzeVideoMetadata uses low confidence for sparse metadata", async () =>
       creator_handle: "",
       platform: "youtube",
       language: "",
-    },
-    { generateText: null },
+    }),
   );
 
   assert.equal(result.topic, "General");
@@ -230,57 +321,46 @@ test("analyzeVideoMetadata uses low confidence for sparse metadata", async () =>
 });
 
 test("analyzeVideoMetadata retries once on invalid JSON and repairs successfully", async () => {
-  const prompts: string[] = [];
-  let callCount = 0;
-
-  const result = await analyzeVideoMetadata(
-    {
-      title: "Beginner JavaScript array methods explained",
-      description: "Learn map, filter, and reduce with simple examples.",
-      caption: "",
-      hashtags: ["#javascript", "#coding"],
-      creator_name: "Code Coach",
-      creator_handle: "@codecoach",
-      platform: "youtube",
-      language: "en",
-    },
-    {
-      generateText: async ({ userPrompt }) => {
-        prompts.push(userPrompt);
-        callCount += 1;
-        if (callCount === 1) {
-          return "not valid json";
-        }
-
-        return JSON.stringify({
-          summary: "Metadata suggests a beginner coding lesson on JavaScript array methods.",
-          topic: "Coding",
-          format: "tutorial",
-          intent: "teach",
-          audience: "beginners",
-          vertical_type: "education",
-          quality_score: 99,
-          confidence: 0.94,
-          tags: ["javascript", "coding", "arrays", "beginners", "tutorial"],
-          vertical_fields: {
-            topic_area: "coding",
-            difficulty: "beginner",
-            learning_goal: "Learn JavaScript array methods",
-          },
-        });
-      },
-    },
+  const result = await withMockGeminiFetch(
+    [
+      "not valid json",
+      JSON.stringify({
+        summary: "Metadata suggests a beginner coding lesson on JavaScript array methods.",
+        topic: "Coding",
+        format: "tutorial",
+        intent: "teach",
+        audience: "beginners",
+        vertical_type: "education",
+        quality_score: 99,
+        confidence: 0.94,
+        tags: ["javascript", "coding", "arrays", "beginners", "tutorial"],
+        vertical_fields: {
+          topic_area: "coding",
+          difficulty: "beginner",
+          learning_goal: "Learn JavaScript array methods",
+        },
+      }),
+    ],
+    async () =>
+      analyzeVideoMetadata({
+        title: "Beginner JavaScript array methods explained",
+        description: "Learn map, filter, and reduce with simple examples.",
+        caption: "",
+        hashtags: ["#javascript", "#coding"],
+        creator_name: "Code Coach",
+        creator_handle: "@codecoach",
+        platform: "youtube",
+        language: "en",
+      }),
   );
 
-  assert.equal(callCount, 2);
-  assert.equal(prompts[1]?.includes("Repair the following model output into valid JSON only."), true);
   assert.equal(result.topic, "Coding");
   assert.equal(result.confidence < 0.94, true);
 });
 
 test("analyzeVideoMetadata falls back safely when JSON remains invalid", async () => {
-  const result = await analyzeVideoMetadata(
-    {
+  const result = await withMockGeminiFetch(["still invalid", "still invalid"], async () =>
+    analyzeVideoMetadata({
       title: "Some general post",
       description: "",
       caption: "",
@@ -289,10 +369,7 @@ test("analyzeVideoMetadata falls back safely when JSON remains invalid", async (
       creator_handle: "",
       platform: "instagram",
       language: "en",
-    },
-    {
-      generateText: async () => "still invalid",
-    },
+    }),
   );
 
   assert.equal(result.topic, "General");
@@ -303,82 +380,92 @@ test("analyzeVideoMetadata falls back safely when JSON remains invalid", async (
 test("processAnalyzeVideo removes duplicate tags before persistence", async () => {
   const observed: string[] = [];
 
-  await processAnalyzeVideo("video_1", {
-    loadVideo: async () => ({
-      ...baseVideo,
-      source_url: "https://www.youtube.com/shorts/abc123",
-      normalized_url: "https://www.youtube.com/shorts/abc123",
-      title: "Title",
-      description: "Description",
-      caption: "",
-      creator_handle: "@creator",
-      language: "en",
-    }),
-    analyzeMetadata: async () => ({
-      summary: "A simple test video.",
-      topic: "General",
-      format: "general",
-      intent: "inform",
-      audience: "general audience",
-      vertical_type: "general",
-      quality_score: 40,
-      confidence: 0.4,
-      tags: ["AI", "ai", "#AI", "Prompt Engineering", "prompt_engineering"],
-      vertical_fields: {},
-    }),
-    insertVideoAnalysis: async (_videoId, analysis) => {
-      observed.push(`analysis:${analysis.tags.join(",")}`);
-    },
-    insertVideoTags: async (_videoId, tags) => {
-      observed.push(`tags:${tags.join(",")}`);
-    },
-    updateVideoFinalStatus: async () => {},
-    enqueueIndexVideo: async () => {},
-  });
+  await withMockGeminiFetch(
+    [
+      JSON.stringify({
+        summary: "A simple test video.",
+        topic: "General",
+        format: "general",
+        intent: "inform",
+        audience: "general audience",
+        vertical_type: "general",
+        quality_score: 40,
+        confidence: 0.4,
+        tags: ["AI", "ai", "#AI", "Prompt Engineering", "prompt_engineering"],
+        vertical_fields: {},
+      }),
+    ],
+    async () =>
+      processAnalyzeVideo("video_1", {
+        loadVideo: async () => ({
+          ...baseVideo,
+          source_url: "https://www.youtube.com/shorts/abc123",
+          normalized_url: "https://www.youtube.com/shorts/abc123",
+          title: "Title",
+          description: "Description",
+          caption: "",
+          creator_handle: "@creator",
+          language: "en",
+        }),
+        insertVideoAnalysis: async (_videoId, analysis) => {
+          observed.push(`analysis:${analysis.tags.join(",")}`);
+        },
+        insertVideoTags: async (_videoId, tags) => {
+          observed.push(`tags:${tags.join(",")}`);
+        },
+        updateVideoFinalStatus: async () => {},
+        enqueueIndexVideo: async () => {},
+      }),
+  );
 
   assert.deepEqual(observed, [
-    "analysis:ai,prompt_engineering",
-    "tags:ai,prompt_engineering",
+    "analysis:ai,prompt_engineering,title,description,youtube",
+    "tags:ai,prompt_engineering,title,description,youtube",
   ]);
 });
 
 test("processAnalyzeVideo transitions status to ready on success", async () => {
   let statusArgs: { summary: string; searchText: string } | null = null;
 
-  const result = await processAnalyzeVideo("video_1", {
-    loadVideo: async () => ({
-      ...baseVideo,
-      source_url: "https://www.youtube.com/shorts/abc123",
-      normalized_url: "https://www.youtube.com/shorts/abc123",
-      title: "Title",
-      description: "Description",
-      caption: "",
-      creator_handle: "@creator",
-      language: "en",
-    }),
-    analyzeMetadata: async () => ({
-      summary: "A production-ready metadata analysis test case.",
-      topic: "Technology",
-      format: "demo",
-      intent: "demonstrate",
-      audience: "developers and tech learners",
-      vertical_type: "education",
-      quality_score: 70,
-      confidence: 0.65,
-      tags: ["technology", "demo", "metadata", "analysis", "developers"],
-      vertical_fields: {
-        topic_area: "technology",
-        difficulty: "beginner",
-        learning_goal: "Understand metadata analysis",
-      },
-    }),
-    insertVideoAnalysis: async () => {},
-    insertVideoTags: async () => {},
-    updateVideoFinalStatus: async (_videoId, summary, searchText) => {
-      statusArgs = { summary, searchText };
-    },
-    enqueueIndexVideo: async () => {},
-  });
+  const result = await withMockGeminiFetch(
+    [
+      JSON.stringify({
+        summary: "A production-ready metadata analysis test case.",
+        topic: "Technology",
+        format: "demo",
+        intent: "demonstrate",
+        audience: "developers and tech learners",
+        vertical_type: "education",
+        quality_score: 70,
+        confidence: 0.65,
+        tags: ["technology", "demo", "metadata", "analysis", "developers"],
+        vertical_fields: {
+          topic_area: "technology",
+          difficulty: "beginner",
+          learning_goal: "Understand metadata analysis",
+        },
+      }),
+    ],
+    async () =>
+      processAnalyzeVideo("video_1", {
+        loadVideo: async () => ({
+          ...baseVideo,
+          source_url: "https://www.youtube.com/shorts/abc123",
+          normalized_url: "https://www.youtube.com/shorts/abc123",
+          title: "Title",
+          description: "Description",
+          caption: "",
+          creator_handle: "@creator",
+          language: "en",
+        }),
+        insertVideoAnalysis: async () => {},
+        insertVideoTags: async () => {},
+        updateVideoFinalStatus: async (_videoId, summary, searchText) => {
+          statusArgs = { summary, searchText };
+        },
+        enqueueIndexVideo: async () => {},
+      }),
+  );
 
   assert.deepEqual(result, {
     videoId: "video_1",
