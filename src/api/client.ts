@@ -1,17 +1,36 @@
 import { HydratedVideo, CollectionItem, CollectionDetail } from '../types';
 
-const API_BASE_URL = 'http://localhost:3000';
+// Read API base URL from environment variable with fallback
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:4000';
 
 let authToken: string | null = null;
 
-export function setAuthToken(token: string) {
+/**
+ * Set the authentication token for API requests.
+ * This should be called after successful Supabase authentication.
+ */
+export function setAuthToken(token: string | null) {
   authToken = token;
 }
 
+/**
+ * Get the current authentication token.
+ */
 export function getAuthToken(): string | null {
   return authToken;
 }
 
+/**
+ * Clear the authentication token.
+ * This should be called on logout or when receiving 401 errors.
+ */
+export function clearAuthToken() {
+  authToken = null;
+}
+
+/**
+ * Internal fetch wrapper that handles authentication and error responses.
+ */
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -26,6 +45,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
     headers,
   });
+
+  // Handle 401 Unauthorized - clear token and throw
+  if (response.status === 401) {
+    clearAuthToken();
+    throw new Error('Unauthorized - please log in again');
+  }
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => '');
