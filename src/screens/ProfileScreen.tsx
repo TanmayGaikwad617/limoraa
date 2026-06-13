@@ -1,16 +1,43 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, TouchableOpacity, Alert } from 'react-native';
 
 import { Pill } from '../components/Pill';
 import { theme } from '../theme';
+import { useAuth } from '../contexts/AuthContext';
 
 export function ProfileScreen() {
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut();
+            } catch (error) {
+              Alert.alert('Error', 'Failed to sign out');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
       <View style={styles.card}>
         <Text style={styles.eyebrow}>Profile</Text>
         <Text style={styles.title}>Free plan, private by default</Text>
         <Text style={styles.subtitle}>Upgrade for AI summaries, categorization, and smarter boards.</Text>
+        {user?.email && (
+          <Text style={styles.email}>{user.email}</Text>
+        )}
       </View>
 
       <View style={styles.card}>
@@ -28,6 +55,10 @@ export function ProfileScreen() {
           <Pill label="Advanced filters" />
         </View>
       </View>
+
+      <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+        <Text style={styles.signOutText}>Sign Out</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -55,9 +86,14 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   eyebrow: {
-    color: theme.colors.muted,
+    color: theme.colors.secondary,
     fontSize: 12,
     marginBottom: 8,
+  },
+  email: {
+    color: theme.colors.secondary,
+    fontSize: 14,
+    marginTop: 8,
   },
   title: {
     color: theme.colors.text,
@@ -82,7 +118,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   usageLabel: {
-    color: theme.colors.muted,
+    color: theme.colors.secondary,
     fontSize: 14,
   },
   usageValue: {
@@ -95,5 +131,19 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginTop: 14,
+  },
+  signOutButton: {
+    height: 48,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  signOutText: {
+    color: theme.colors.danger,
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
