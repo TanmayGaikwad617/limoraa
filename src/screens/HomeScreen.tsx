@@ -1,18 +1,121 @@
-import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
-import { videos } from '../data/library';
+import { fetchVideos } from '../data/library';
 import { VideoItem } from '../types';
 import { MasonryColumns } from '../components/MasonryColumns';
 import { Pill } from '../components/Pill';
 import { theme } from '../theme';
 
+const PAGE_SIZE = 50;
 const quickFilters = ['All', 'TikTok', 'Instagram', 'YouTube', 'Recipes', 'Workouts', 'DIY', 'Education'];
 
 export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
+  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadVideos = useCallback(async (reset = false) => {
+    const currentOffset = reset ? 0 : offset;
+    try {
+      const items = await fetchVideos({ limit: PAGE_SIZE, offset: currentOffset });
+      if (reset) {
+        setVideos(items);
+        setOffset(PAGE_SIZE);
+      } else {
+        setVideos((prev) => [...prev, ...items]);
+        setOffset((prev) => prev + PAGE_SIZE);
+      }
+      setHasMore(items.length === PAGE_SIZE);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load videos');
+    }
+  }, [offset]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchVideos({ limit: PAGE_SIZE, offset: 0 })
+      .then((items) => {
+        if (cancelled) return;
+        setVideos(items);
+        setOffset(PAGE_SIZE);
+        setHasMore(items.length === PAGE_SIZE);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Failed to load videos');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const items = await fetchVideos({ limit: PAGE_SIZE, offset: 0 });
+      setVideos(items);
+      setOffset(PAGE_SIZE);
+      setHasMore(items.length === PAGE_SIZE);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load videos');
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  const onScrollEnd = useCallback(() => {
+    if (!hasMore || loadingMore) return;
+    setLoadingMore(true);
+    loadVideos(false).finally(() => setLoadingMore(false));
+  }, [hasMore, loadingMore, loadVideos]);
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color={theme.colors.text} />
+      </View>
+    );
+  }
+
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      onMomentumScrollEnd={({ nativeEvent }) => {
+        const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+        if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 200) {
+          onScrollEnd();
+        }
+      }}
+    >
+      {error && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorBannerText}>{error}</Text>
+          <Pressable onPress={onRefresh}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        </View>
+      )}
+
       <View style={styles.heroCard}>
         <View style={styles.heroTop}>
           <View>
@@ -29,10 +132,10 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
 
         <View style={styles.statsRow}>
           <View style={styles.statPill}>
-            <Text style={styles.statLabel}>123 Saved</Text>
+            <Text style={styles.statLabel}>{videos.length} Saved</Text>
           </View>
           <View style={styles.statPill}>
-            <Text style={styles.statLabel}>8 Collections</Text>
+            <Text style={styles.statLabel}>0 Collections</Text>
           </View>
         </View>
       </View>
@@ -51,7 +154,7 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
       <View style={styles.sectionHeader}>
         <View>
           <Text style={styles.sectionEyebrow}>Processing</Text>
-          <Text style={styles.sectionTitle}>3 items being analyzed</Text>
+          <Text style={styles.sectionTitle}>0 items being analyzed</Text>
         </View>
         <Text style={styles.sectionAction}>Tap for queue</Text>
       </View>
@@ -73,12 +176,55 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
         <Text style={styles.sectionAction}>Thumbnail first</Text>
       </View>
 
-      <MasonryColumns items={videos} onOpen={onOpen} />
+      {videos.length === 0 && !error ? (
+        <View style={styles.emptyState}>
+          <Feather name="book-open" size={32} color={theme.colors.muted} />
+          <Text style={styles.emptyTitle}>Your library is empty</Text>
+          <Text style={styles.emptyCopy}>
+            Save your first video to get started. Tap + to add a URL.
+          </Text>
+        </View>
+      ) : (
+        <MasonryColumns items={videos} onOpen={onOpen} />
+      )}
+
+      {loadingMore && (
+        <ActivityIndicator size="small" color={theme.colors.text} style={{ marginTop: 16 }} />
+      )}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.background,
+    padding: 24,
+    gap: 12,
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: theme.radius.md,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    padding: 12,
+  },
+  errorBannerText: {
+    color: theme.colors.danger,
+    fontSize: 13,
+    flex: 1,
+    marginRight: 12,
+  },
+  retryText: {
+    color: theme.colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
   content: {
     padding: 18,
     paddingBottom: 120,
@@ -203,5 +349,22 @@ const styles = StyleSheet.create({
   processingLabel: {
     color: theme.colors.muted,
     fontSize: 14,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 48,
+    gap: 12,
+  },
+  emptyTitle: {
+    color: theme.colors.text,
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  emptyCopy: {
+    color: theme.colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    maxWidth: 260,
   },
 });

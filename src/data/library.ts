@@ -1,127 +1,78 @@
-import { CollectionItem, VideoItem } from '../types';
+import { HydratedVideo, VideoItem } from '../types';
+import { formatRelativeTime, formatContentType, formatPlatform } from '../utils/format';
+import {
+  fetchVideos as apiFetchVideos,
+  fetchVideo as apiFetchVideo,
+  searchVideos as apiSearchVideos,
+  saveVideo as apiSaveVideo,
+  deleteVideo as apiDeleteVideo,
+} from '../api/client';
 
-export const videos: VideoItem[] = [
-  {
-    id: 'video-1',
-    title: '5 breakfast wraps for weekday meal prep',
-    creator: '@eatwellwithmaya',
-    platform: 'YouTube',
-    type: 'Recipe',
-    status: 'Ready',
-    summary: 'Quick protein-heavy wraps with freezer-friendly prep steps and clear ingredient ratios.',
-    tags: ['meal prep', 'high protein', 'weekday'],
-    collection: 'Healthy Recipes',
-    savedAgo: 'Saved 2h ago',
-    thumbnailColor: '#d9cab8',
-    sourceUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-    embedUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ?playsinline=1&rel=0',
-  },
-  {
-    id: 'video-2',
-    title: 'Small-space dumbbell shoulder workout',
-    creator: '@coachniko',
-    platform: 'TikTok',
-    type: 'Workout',
-    status: 'Analyzing',
-    summary: 'Compact shoulder sequence with tempo cues, sets, and home-friendly variations.',
-    tags: ['shoulders', 'dumbbells', 'home gym'],
-    collection: 'Gym',
-    savedAgo: 'Saved 19m ago',
-    thumbnailColor: '#d5d9ca',
-    sourceUrl: 'https://www.tiktok.com/@scout2015/video/6718335390845095173',
-    embedUrl: 'https://www.tiktok.com/embed/v2/6718335390845095173',
-  },
-  {
-    id: 'video-3',
-    title: 'No-sew cable organizer with felt strips',
-    creator: '@studio.remedy',
-    platform: 'Instagram',
-    type: 'DIY',
-    status: 'Ready',
-    summary: 'A clean desk organizer build with a short materials list and easy finishing steps.',
-    tags: ['desk', 'organizing', 'felt'],
-    collection: 'Weekend DIY',
-    savedAgo: 'Saved yesterday',
-    thumbnailColor: '#e4d6d8',
-    sourceUrl: 'https://www.instagram.com/reel/Cx123456789/',
-  },
-  {
-    id: 'video-4',
-    title: 'Teach better hooks in 30 seconds',
-    creator: '@storyframe',
-    platform: 'YouTube',
-    type: 'Education',
-    status: 'Ready',
-    summary: 'A short breakdown of visual hooks, payoff timing, and how to hold attention early.',
-    tags: ['hooks', 'editing', 'creator'],
-    collection: 'AI Tools',
-    savedAgo: 'Saved 3d ago',
-    thumbnailColor: '#cbcfc8',
-    sourceUrl: 'https://www.youtube.com/watch?v=ysz5S6PUM-U',
-    embedUrl: 'https://www.youtube.com/embed/ysz5S6PUM-U?playsinline=1&rel=0',
-  },
-  {
-    id: 'video-5',
-    title: 'Three lunch bowls that actually stay crisp',
-    creator: '@graceplates',
-    platform: 'TikTok',
-    type: 'Recipe',
-    status: 'Queued',
-    summary: 'Three prep-friendly lunch bowls with storage order, sauce timing, and texture tips.',
-    tags: ['bowls', 'storage', 'lunch'],
-    collection: 'Meal Prep',
-    savedAgo: 'Saved 4m ago',
-    thumbnailColor: '#e0d7c7',
-    sourceUrl: 'https://www.tiktok.com/@scout2015/video/6718335390845095173',
-    embedUrl: 'https://www.tiktok.com/embed/v2/6718335390845095173',
-  },
-  {
-    id: 'video-6',
-    title: 'Beginner mobility flow before lower-body day',
-    creator: '@moveroutine',
-    platform: 'Instagram',
-    type: 'Workout',
-    status: 'Ready',
-    summary: 'A warm-up sequence focused on hips, ankles, and breathing for better range of motion.',
-    tags: ['mobility', 'warmup', 'legs'],
-    collection: 'Gym',
-    savedAgo: 'Saved last week',
-    thumbnailColor: '#d7d8dd',
-    sourceUrl: 'https://www.instagram.com/reel/Cx123456789/',
-  },
+const THUMBNAIL_PALETTE = [
+  '#d97706', '#059669', '#6366f1', '#7c3aed',
+  '#dc2626', '#0891b2', '#a16207', '#2563eb',
 ];
 
-export const collections: CollectionItem[] = [
-  {
-    id: 'col-1',
-    name: 'Healthy Recipes',
-    kind: 'Manual',
-    note: 'Food ideas I would genuinely cook again.',
-    itemCount: 32,
-    cover: ['#dbcdbb', '#c9d5bb', '#e6d7c5', '#d7d1c9'],
-  },
-  {
-    id: 'col-2',
-    name: 'Meal Prep',
-    kind: 'Smart',
-    note: 'Topic equals recipe and tags include prep.',
-    itemCount: 21,
-    cover: ['#d8c2b2', '#ded8c8', '#d6dfd4', '#ece2d5'],
-  },
-  {
-    id: 'col-3',
-    name: 'Gym',
-    kind: 'Manual',
-    note: 'Workouts worth repeating, not just consuming once.',
-    itemCount: 14,
-    cover: ['#cfd6c7', '#e2dfd5', '#d8d0c2', '#c8ced3'],
-  },
-  {
-    id: 'col-4',
-    name: 'AI Tools',
-    kind: 'Smart',
-    note: 'Education clips that explain workflows clearly.',
-    itemCount: 18,
-    cover: ['#d6ddd7', '#d8cdc0', '#e7d9cd', '#cfd4de'],
-  },
-];
+function pickColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return THUMBNAIL_PALETTE[Math.abs(hash) % THUMBNAIL_PALETTE.length];
+}
+
+function toVideoItem(v: HydratedVideo): VideoItem {
+  return {
+    id: v.id,
+    title: v.title ?? 'Untitled',
+    creator: v.creator_handle ?? v.creator_name ?? 'Unknown',
+    summary: v.summary ?? v.description ?? '',
+    platform: formatPlatform(v.platform),
+    status: v.analysis_status === 'completed' ? 'Ready' : v.status,
+    thumbnailColor: pickColor(v.id),
+    savedAgo: formatRelativeTime(v.saved_at),
+    tags: v.tags.map((t) => t.tag),
+    collection: v.collections[0]?.name ?? 'General',
+    sourceUrl: v.source_url,
+    embedUrl: v.embed_url ?? undefined,
+    type: formatContentType(v.content_type),
+  };
+}
+
+export async function fetchVideos(params?: {
+  limit?: number;
+  offset?: number;
+  platform?: string;
+  content_type?: string;
+  status?: string;
+  q?: string;
+  collection_id?: string;
+  creator?: string;
+}): Promise<VideoItem[]> {
+  const res = await apiFetchVideos(params);
+  return res.items.map(toVideoItem);
+}
+
+export async function fetchVideo(id: string): Promise<VideoItem | null> {
+  const res = await apiFetchVideo(id);
+  return res.video ? toVideoItem(res.video) : null;
+}
+
+export async function searchVideos(params: {
+  q: string;
+  limit?: number;
+  offset?: number;
+}): Promise<VideoItem[]> {
+  const res = await apiSearchVideos(params);
+  return res.items.map(toVideoItem);
+}
+
+export async function saveVideo(url: string) {
+  return apiSaveVideo(url);
+}
+
+export async function deleteVideo(id: string) {
+  return apiDeleteVideo(id);
+}
+
+export { fetchCollections, fetchCollection } from '../api/client';

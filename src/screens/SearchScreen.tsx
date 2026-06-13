@@ -1,7 +1,7 @@
-import React from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { videos } from '../data/library';
+import { searchVideos } from '../data/library';
 import { VideoItem } from '../types';
 import { MasonryColumns } from '../components/MasonryColumns';
 import { Pill } from '../components/Pill';
@@ -9,33 +9,46 @@ import { theme } from '../theme';
 
 const recentSearches = ['meal prep', 'ai tools', 'workout'];
 const suggestedFilters = ['Recipes', 'Education', 'DIY'];
+const DEBOUNCE_MS = 300;
 
-export function SearchScreen({
-  value,
-  onChange,
-  onOpen,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  onOpen: (item: VideoItem) => void;
-}) {
-  const filtered = videos.filter((item) => {
-    const needle = value.trim().toLowerCase();
-    if (!needle) {
-      return true;
+export function SearchScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<VideoItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doSearch = useCallback(async (q: string) => {
+    if (!q.trim()) {
+      setResults([]);
+      setSearched(false);
+      return;
     }
+    setLoading(true);
+    setSearched(true);
+    try {
+      const items = await searchVideos({ q: q.trim() });
+      setResults(items);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-    return [
-      item.title,
-      item.creator,
-      item.summary,
-      item.tags.join(' '),
-      item.collection,
-    ]
-      .join(' ')
-      .toLowerCase()
-      .includes(needle);
-  });
+  const onChangeText = useCallback((text: string) => {
+    setQuery(text);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => doSearch(text), DEBOUNCE_MS);
+  }, [doSearch]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const showSuggestions = !searched || !query.trim();
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
@@ -44,40 +57,52 @@ export function SearchScreen({
         <Text style={styles.title}>Find saved content instantly</Text>
         <TextInput
           style={styles.input}
-          value={value}
-          onChangeText={onChange}
+          value={query}
+          onChangeText={onChangeText}
           placeholder="Search videos..."
           placeholderTextColor={theme.colors.muted}
         />
       </View>
 
-      <View>
-        <Text style={styles.groupTitle}>Recent searches</Text>
-        <View style={styles.pillRow}>
-          {recentSearches.map((item) => (
-            <Pill key={item} label={item} />
-          ))}
-        </View>
-      </View>
+      {showSuggestions ? (
+        <>
+          <View>
+            <Text style={styles.groupTitle}>Recent searches</Text>
+            <View style={styles.pillRow}>
+              {recentSearches.map((item) => (
+                <Pill key={item} label={item} />
+              ))}
+            </View>
+          </View>
 
-      <View>
-        <Text style={styles.groupTitle}>Suggested filters</Text>
-        <View style={styles.pillRow}>
-          {suggestedFilters.map((item) => (
-            <Pill key={item} label={item} />
-          ))}
-        </View>
-      </View>
+          <View>
+            <Text style={styles.groupTitle}>Suggested filters</Text>
+            <View style={styles.pillRow}>
+              {suggestedFilters.map((item) => (
+                <Pill key={item} label={item} />
+              ))}
+            </View>
+          </View>
+        </>
+      ) : loading ? (
+        <ActivityIndicator size="large" color={theme.colors.text} style={{ marginTop: 32 }} />
+      ) : (
+        <>
+          <View style={styles.resultsHeader}>
+            <View>
+              <Text style={styles.eyebrow}>Results</Text>
+              <Text style={styles.resultsTitle}>
+                {results.length > 0
+                  ? `${results.length} match${results.length === 1 ? '' : 'es'}`
+                  : 'No results'}
+              </Text>
+            </View>
+            <Text style={styles.matchLabel}>Best matches</Text>
+          </View>
 
-      <View style={styles.resultsHeader}>
-        <View>
-          <Text style={styles.eyebrow}>Results</Text>
-          <Text style={styles.resultsTitle}>{value || 'All saved videos'}</Text>
-        </View>
-        <Text style={styles.matchLabel}>Best matches</Text>
-      </View>
-
-      <MasonryColumns items={filtered} onOpen={onOpen} />
+          {results.length > 0 && <MasonryColumns items={results} onOpen={onOpen} />}
+        </>
+      )}
     </ScrollView>
   );
 }

@@ -1,12 +1,29 @@
-import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { collections } from '../data/library';
+import { fetchCollections } from '../data/library';
+import { CollectionItem } from '../types';
 import { CollectionCard } from '../components/CollectionCard';
 import { Pill } from '../components/Pill';
 import { theme } from '../theme';
 
 export function CollectionsScreen() {
+  const [collections, setCollections] = useState<CollectionItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCollections()
+      .then((res) => {
+        if (!cancelled) setCollections(res.items);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
       <View style={styles.headerCard}>
@@ -24,9 +41,13 @@ export function CollectionsScreen() {
       </View>
 
       <View style={styles.grid}>
-        {collections.map((item) => (
-          <CollectionCard key={item.id} item={item} />
-        ))}
+        {loading ? (
+          <ActivityIndicator size="large" color={theme.colors.text} />
+        ) : (
+          collections.map((item) => (
+            <CollectionCard key={item.id} item={item} />
+          ))
+        )}
       </View>
     </ScrollView>
   );
