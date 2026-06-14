@@ -62,3 +62,20 @@ export interface CollectionItem {
 export interface CollectionDetail extends CollectionItem {
   videos: HydratedVideo[];
 }
+
+export interface VideoStatusResponse {
+  video_id: string;
+  status: string;
+  metadata_status: string;
+  analysis_status: string;
+  jobs: Array<{
+    id: string;
+    job_type: string;
+    status: string;
+    attempt_count: number;
+    error_message: string | null;
+    queued_at: string;
+    started_at: string | null;
+    completed_at: string | null;
+  }>;
+}

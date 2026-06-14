@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,10 +11,11 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
-import { fetchVideos } from '../data/library';
+import { fetchVideo, fetchVideos } from '../data/library';
 import { VideoItem } from '../types';
 import { MasonryColumns } from '../components/MasonryColumns';
 import { Pill } from '../components/Pill';
+import { SaveSheet } from '../components/SaveSheet';
 import { theme } from '../theme';
 
 const PAGE_SIZE = 50;
@@ -27,6 +29,97 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showSaveSheet, setShowSaveSheet] = useState(false);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'info';
+  } | null>(null);
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const videosRef = useRef(videos);
+  videosRef.current = videos;
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const doPoll = useCallback(async () => {
+    const current = videosRef.current;
+    const processingStatuses = ['queued', 'fetching_metadata', 'analyzing'];
+    const processing = current.filter((v) => processingStatuses.includes(v.status));
+    if (processing.length === 0) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+
+    const results = await Promise.allSettled(processing.map((v) => fetchVideo(v.id)));
+    const updates: VideoItem[] = [];
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value) updates.push(r.value);
+    }
+    if (updates.length === 0) return;
+
+    setVideos((prev) => {
+      let changed = false;
+      const next = prev.map((v) => {
+        const u = updates.find((x) => x.id === v.id);
+        if (u && (u.status !== v.status || u.title !== v.title)) {
+          changed = true;
+          return u;
+        }
+        return v;
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  useEffect(() => {
+    const processingStatuses = ['queued', 'fetching_metadata', 'analyzing'];
+    const needsPoll = videos.some((v) => processingStatuses.includes(v.status));
+
+    if (needsPoll && !pollRef.current) {
+      pollRef.current = setInterval(doPoll, 5000);
+    } else if (!needsPoll && pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, [videos, doPoll]);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleSaved = useCallback(
+    (result: { is_new: boolean; video: VideoItem | null }) => {
+      if (result.is_new && result.video) {
+        setVideos((prev) => [result.video!, ...prev]);
+        setToast({ message: 'Saved — processing', type: 'success' });
+      } else if (!result.is_new && result.video) {
+        setToast({ message: 'Already in your library', type: 'info' });
+        onOpen(result.video);
+      } else {
+        setToast({ message: 'Something went wrong, try again', type: 'info' });
+      }
+    },
+    [onOpen],
+  );
+
+  const handleRetry = useCallback(() => {
+    Alert.alert(
+      'Retry not available',
+      'The backend does not yet support retrying failed videos. This is a known gap that will be addressed in a future update.',
+    );
+  }, []);
 
   const loadVideos = useCallback(async (reset = false) => {
     const currentOffset = reset ? 0 : offset;
@@ -116,6 +209,19 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
         </View>
       )}
 
+      {toast && (
+        <View style={[styles.toastBanner, toast.type === 'success' ? styles.toastSuccess : styles.toastInfo]}>
+          <Feather
+            name={toast.type === 'success' ? 'check-circle' : 'info'}
+            size={14}
+            color={toast.type === 'success' ? '#059669' : theme.colors.text}
+          />
+          <Text style={[styles.toastText, toast.type === 'success' ? styles.toastTextSuccess : null]}>
+            {toast.message}
+          </Text>
+        </View>
+      )}
+
       <View style={styles.heroCard}>
         <View style={styles.heroTop}>
           <View>
@@ -125,7 +231,7 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
               Save what matters. Browse it like a board, not like a feed.
             </Text>
           </View>
-          <Pressable style={styles.addButton}>
+          <Pressable style={styles.addButton} onPress={() => setShowSaveSheet(true)}>
             <Feather name="plus" size={18} color={theme.colors.card} />
           </Pressable>
         </View>
@@ -151,22 +257,48 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
         ))}
       </View>
 
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionEyebrow}>Processing</Text>
-          <Text style={styles.sectionTitle}>0 items being analyzed</Text>
-        </View>
-        <Text style={styles.sectionAction}>Tap for queue</Text>
-      </View>
+      {(() => {
+        const processingStatuses = ['queued', 'fetching_metadata', 'analyzing'];
+        const processingCount = videos.filter((v) => processingStatuses.includes(v.status)).length;
+        const queuedCount = videos.filter((v) => v.status === 'queued').length;
+        const fetchingCount = videos.filter((v) => v.status === 'fetching_metadata').length;
+        const analyzingCount = videos.filter((v) => v.status === 'analyzing').length;
+        if (queuedCount + fetchingCount + analyzingCount === 0) return null;
 
-      <View style={styles.processingCard}>
-        {['Queued', 'Fetching metadata', 'Analyzing'].map((stage) => (
-          <View key={stage} style={styles.processingRow}>
-            <View style={styles.processingDot} />
-            <Text style={styles.processingLabel}>{stage}</Text>
-          </View>
-        ))}
-      </View>
+        const stages = [
+          { label: 'Queued', key: 'queued', count: queuedCount },
+          { label: 'Fetching metadata', key: 'fetching_metadata', count: fetchingCount },
+          { label: 'Analyzing', key: 'analyzing', count: analyzingCount },
+        ];
+
+        return (
+          <>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={styles.sectionEyebrow}>Processing</Text>
+                <Text style={styles.sectionTitle}>
+                  {processingCount} {processingCount === 1 ? 'item' : 'items'} being analyzed
+                </Text>
+              </View>
+              <Text style={styles.sectionAction}>Tap for queue</Text>
+            </View>
+
+            <View style={styles.processingCard}>
+              {stages.map((stage) =>
+                stage.count > 0 ? (
+                  <View key={stage.key} style={styles.processingRow}>
+                    <View style={styles.processingDot} />
+                    <Text style={styles.processingLabel}>{stage.label}</Text>
+                    <View style={styles.processingCountBadge}>
+                      <Text style={styles.processingCountText}>{stage.count}</Text>
+                    </View>
+                  </View>
+                ) : null,
+              )}
+            </View>
+          </>
+        );
+      })()}
 
       <View style={styles.sectionHeader}>
         <View>
@@ -185,12 +317,18 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
           </Text>
         </View>
       ) : (
-        <MasonryColumns items={videos} onOpen={onOpen} />
+        <MasonryColumns items={videos} onOpen={onOpen} onRetry={handleRetry} />
       )}
 
       {loadingMore && (
         <ActivityIndicator size="small" color={theme.colors.text} style={{ marginTop: 16 }} />
       )}
+
+      <SaveSheet
+        visible={showSaveSheet}
+        onClose={() => setShowSaveSheet(false)}
+        onSaved={handleSaved}
+      />
     </ScrollView>
   );
 }
@@ -349,6 +487,18 @@ const styles = StyleSheet.create({
   processingLabel: {
     color: theme.colors.muted,
     fontSize: 14,
+    flex: 1,
+  },
+  processingCountBadge: {
+    backgroundColor: theme.colors.cardSoft,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  processingCountText: {
+    color: theme.colors.secondary,
+    fontSize: 12,
+    fontWeight: '600',
   },
   emptyState: {
     alignItems: 'center',
@@ -366,5 +516,31 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: 'center',
     maxWidth: 260,
+  },
+  toastBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  toastSuccess: {
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  toastInfo: {
+    backgroundColor: theme.colors.cardSoft,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  toastText: {
+    fontSize: 13,
+    flex: 1,
+  },
+  toastTextSuccess: {
+    color: '#059669',
+    fontWeight: '600',
   },
 });

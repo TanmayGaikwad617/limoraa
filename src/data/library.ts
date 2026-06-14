@@ -1,50 +1,77 @@
-/**
- * Data layer for fetching and transforming video library data.
- * All functions are async and use the shared API client.
- */
+import { fetchVideos as apiFetchVideos, fetchVideo as apiFetchVideo, searchVideos as apiSearchVideos, saveVideo as apiSaveVideo } from '../api/client';
+import type { HydratedVideo, VideoItem } from '../types';
+import { formatRelativeTime, formatContentType, formatPlatform } from '../utils/format';
 
-import { fetchVideos as apiFetchVideos, fetchVideo as apiFetchVideo } from '../api/client';
-import type { HydratedVideo } from '../types';
+const THUMBNAIL_PALETTE = [
+  '#d97706', '#059669', '#6366f1', '#7c3aed',
+  '#dc2626', '#0891b2', '#a16207', '#2563eb',
+];
 
-export interface FetchVideosParams {
+function pickColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return THUMBNAIL_PALETTE[Math.abs(hash) % THUMBNAIL_PALETTE.length];
+}
+
+function toVideoItem(v: HydratedVideo): VideoItem {
+  return {
+    id: v.id,
+    title: v.title ?? 'Untitled',
+    creator: v.creator_handle ?? v.creator_name ?? 'Unknown',
+    summary: v.summary ?? v.description ?? '',
+    platform: formatPlatform(v.platform),
+    status: v.analysis_status === 'completed' ? 'Ready' : v.status,
+    thumbnailColor: pickColor(v.id),
+    savedAgo: formatRelativeTime(v.saved_at),
+    tags: v.tags.map((t) => t.tag),
+    collection: v.collections[0]?.name ?? 'General',
+    sourceUrl: v.source_url,
+    embedUrl: v.embed_url ?? undefined,
+    type: formatContentType(v.content_type),
+  };
+}
+
+export async function fetchVideos(params?: {
   limit?: number;
   offset?: number;
-  platform?: 'tiktok' | 'instagram' | 'youtube';
-  content_type?: 'recipe' | 'workout' | 'tutorial_diy' | 'beauty_fashion' | 'education' | 'entertainment' | 'general';
-  status?: 'queued' | 'fetching_metadata' | 'analyzing' | 'ready' | 'failed';
+  platform?: string;
+  content_type?: string;
+  status?: string;
   q?: string;
   collection_id?: string;
   creator?: string;
+}): Promise<VideoItem[]> {
+  const res = await apiFetchVideos(params);
+  return res.items.map(toVideoItem);
 }
 
-export interface FetchVideosResult {
-  items: HydratedVideo[];
-  limit: number;
-  offset: number;
+export async function fetchVideo(id: string): Promise<VideoItem | null> {
+  const res = await apiFetchVideo(id);
+  return res.video ? toVideoItem(res.video) : null;
 }
 
-/**
- * Fetch videos with optional filtering and pagination.
- */
-export async function fetchVideos(params?: FetchVideosParams): Promise<FetchVideosResult> {
-  return apiFetchVideos(params);
-}
-
-/**
- * Fetch a single video by ID.
- */
-export async function fetchVideo(id: string): Promise<HydratedVideo> {
-  const result = await apiFetchVideo(id);
-  return result.video;
-}
-
-/**
- * Search videos by query string.
- */
 export async function searchVideos(params: {
   q: string;
   limit?: number;
   offset?: number;
-}): Promise<FetchVideosResult> {
-  return apiFetchVideos({ ...params });
+}): Promise<VideoItem[]> {
+  const res = await apiSearchVideos(params);
+  return res.items.map(toVideoItem);
 }
+
+export async function saveVideo(url: string): Promise<{
+  is_new: boolean;
+  video: VideoItem | null;
+  queue_enqueued: boolean;
+}> {
+  const res = await apiSaveVideo(url);
+  return {
+    is_new: res.is_new,
+    video: res.video ? toVideoItem(res.video) : null,
+    queue_enqueued: res.queue_enqueued,
+  };
+}
+
+export { fetchCollections, fetchCollection, fetchVideoStatus } from '../api/client';

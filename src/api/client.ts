@@ -1,53 +1,25 @@
-import { createClient, Session } from '@supabase/supabase-js';
-import { HydratedVideo, CollectionItem, CollectionDetail } from '../types';
+import { HydratedVideo, CollectionItem, CollectionDetail, VideoStatusResponse } from '../types';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-let supabaseClient: ReturnType<typeof createClient> | null = null;
-let currentSession: Session | null = null;
-let authListenerInitialized = false;
+let authToken: string | null = null;
 
-function getSupabase() {
-  if (supabaseClient) return supabaseClient;
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
-  supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  if (!authListenerInitialized) {
-    authListenerInitialized = true;
-    supabaseClient.auth.onAuthStateChange((_event, session) => {
-      currentSession = session;
-    });
-  }
-  return supabaseClient;
+export function setAuthToken(token: string) {
+  authToken = token;
 }
 
-export function getAccessToken(): string | null {
-  return currentSession?.access_token ?? null;
-}
-
-export function getCurrentSession(): Session | null {
-  return currentSession;
-}
-
-export async function signOut() {
-  const client = getSupabase();
-  if (client) {
-    await client.auth.signOut();
-  }
-  currentSession = null;
+export function getAuthToken(): string | null {
+  return authToken;
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = getAccessToken();
-
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options?.headers as Record<string, string> | undefined),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -56,8 +28,8 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (response.status === 401) {
-    await signOut();
-    throw new Error('Session expired. Please sign in again.');
+    authToken = null;
+    throw new Error('Unauthorized. Please sign in again.');
   }
 
   if (!response.ok) {
@@ -155,4 +127,10 @@ export async function addTags(
     method: 'POST',
     body: JSON.stringify({ tags }),
   });
+}
+
+export async function fetchVideoStatus(
+  id: string,
+): Promise<VideoStatusResponse> {
+  return apiFetch(`/videos/${id}/status`);
 }

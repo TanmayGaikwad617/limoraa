@@ -1,27 +1,54 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { VideoItem } from '../types';
 import { theme } from '../theme';
 
+const STATUS_LABELS: Record<string, string> = {
+  queued: 'Queued',
+  fetching_metadata: 'Fetching metadata',
+  analyzing: 'Analyzing',
+  failed: 'Failed',
+};
+
 export function VideoCard({
   item,
   onPress,
+  onRetry,
   tall = false,
 }: {
   item: VideoItem;
   onPress: () => void;
+  onRetry?: () => void;
   tall?: boolean;
 }) {
+  const isReady = item.status === 'Ready';
+  const isFailed = item.status === 'failed';
+  const isProcessing = !isReady && !isFailed;
+
   return (
     <Pressable style={({ pressed }) => [styles.card, pressed && styles.pressed]} onPress={onPress}>
       <View style={[styles.thumbnail, { backgroundColor: item.thumbnailColor, minHeight: tall ? 220 : 168 }]}>
         <View style={styles.platformChip}>
           <Text style={styles.platformText}>{item.platform}</Text>
         </View>
-        <View style={styles.statusChip}>
-          <Text style={styles.statusText}>{item.status}</Text>
-        </View>
+
+        {!isReady && (
+          <View style={styles.statusChip}>
+            {isProcessing && (
+              <ActivityIndicator size={10} color={theme.colors.muted} style={{ marginRight: 4 }} />
+            )}
+            <Text style={styles.statusText}>
+              {STATUS_LABELS[item.status] ?? item.status}
+            </Text>
+          </View>
+        )}
+
+        {isFailed && onRetry && (
+          <Pressable style={styles.retryChip} onPress={onRetry}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        )}
       </View>
 
       <Text style={styles.title}>{item.title}</Text>
@@ -64,15 +91,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   statusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     alignSelf: 'flex-end',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: theme.radius.pill,
-    backgroundColor: 'rgba(255,253,248,0.78)',
+    backgroundColor: 'rgba(245,245,245,0.82)',
   },
   statusText: {
-    color: theme.colors.muted,
+    color: theme.colors.secondary,
     fontSize: 11,
+    fontWeight: '500',
+  },
+  retryChip: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.radius.pill,
+    backgroundColor: 'rgba(245,245,245,0.82)',
+    marginTop: 4,
+  },
+  retryText: {
+    color: theme.colors.accent,
+    fontSize: 11,
+    fontWeight: '600',
   },
   title: {
     color: theme.colors.text,

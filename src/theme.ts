@@ -13,6 +13,10 @@ export const theme = {
     black: '#000000',
     white: '#FFFFFF',
     danger: '#FF3B30',
+    muted: '#666666',
+    cardSoft: '#F5F5F5',
+    accent: '#007AFF',
+    rust: '#8B4513',
   },
   spacing: {
     xs: 4,
