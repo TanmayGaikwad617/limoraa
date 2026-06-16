@@ -9,7 +9,6 @@ const icons: Record<TabKey, keyof typeof Feather.glyphMap> = {
   home: 'home',
   search: 'search',
   collections: 'grid',
-  detail: 'play-circle',
   profile: 'user',
 };
 
@@ -17,7 +16,6 @@ const labels: Record<TabKey, string> = {
   home: 'Home',
   search: 'Search',
   collections: 'Collections',
-  detail: 'Detail',
   profile: 'Profile',
 };
 

@@ -8,6 +8,10 @@ export function setAuthToken(token: string) {
   authToken = token;
 }
 
+export function clearAuthToken() {
+  authToken = null;
+}
+
 export function getAuthToken(): string | null {
   return authToken;
 }
@@ -133,4 +137,75 @@ export async function fetchVideoStatus(
   id: string,
 ): Promise<VideoStatusResponse> {
   return apiFetch(`/videos/${id}/status`);
+}
+
+export async function deleteTags(
+  videoId: string,
+  tags: string[],
+): Promise<{ ok: boolean; tags: string[] }> {
+  return apiFetch(`/videos/${videoId}/tags`, {
+    method: 'DELETE',
+    body: JSON.stringify({ tags }),
+  });
+}
+
+export async function addVideoToCollection(
+  collectionId: string,
+  videoId: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/collections/${collectionId}/videos`, {
+    method: 'POST',
+    body: JSON.stringify({ video_id: videoId }),
+  });
+}
+
+export async function removeVideoFromCollection(
+  collectionId: string,
+  videoId: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/collections/${collectionId}/videos/${videoId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function fetchBillingPlan(): Promise<{
+  profile: {
+    id: string;
+    plan: string;
+    monthly_save_count: number;
+    monthly_ai_count: number;
+    monthly_save_limit: number;
+    monthly_ai_limit: number;
+  } | null;
+  subscription: {
+    id: string;
+    provider: string;
+    entitlement_id: string | null;
+    product_id: string | null;
+    subscription_status: string;
+    plan: string;
+    original_app_user_id: string | null;
+    current_period_start: string | null;
+    current_period_end: string | null;
+  } | null;
+}> {
+  return apiFetch('/billing/plan');
+}
+
+export async function createCollection(data: {
+  name: string;
+  description?: string | null;
+  type?: string;
+  icon?: string | null;
+}): Promise<{ collection: CollectionItem }> {
+  return apiFetch('/collections', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteCollection(
+  id: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/collections/${id}`, { method: 'DELETE' });
 }

@@ -1,26 +1,42 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 
 import { CollectionItem } from '../types';
 import { theme } from '../theme';
 
-export function CollectionCard({ item }: { item: CollectionItem }) {
+const ICON_FALLBACK = 'folder';
+
+export function CollectionCard({
+  item,
+  onPress,
+}: {
+  item: CollectionItem;
+  onPress?: () => void;
+}) {
+  const iconName = (item.icon ?? ICON_FALLBACK) as keyof typeof Feather.glyphMap;
+
   return (
-    <View style={styles.card}>
-      <View style={styles.coverGrid}>
-        {item.cover.map((color, index) => (
-          <View key={`${item.id}-${index}`} style={[styles.coverTile, { backgroundColor: color }]} />
-        ))}
-      </View>
-      <View style={styles.body}>
-        <View style={styles.headerRow}>
-          <Text style={styles.kind}>{item.kind}</Text>
-          <Text style={styles.count}>{item.itemCount} items</Text>
+    <Pressable style={({ pressed }) => [styles.card, pressed && styles.pressed]} onPress={onPress}>
+      <View style={styles.iconRow}>
+        <View style={styles.iconCircle}>
+          <Feather name={iconName in Feather.glyphMap ? iconName : ICON_FALLBACK} size={20} color={theme.colors.accent} />
         </View>
-        <Text style={styles.name}>{item.name}</Text>
-        <Text style={styles.note}>{item.note}</Text>
+        <View style={styles.typeBadge}>
+          <Text style={styles.typeText}>{item.type === 'smart' ? 'Smart' : 'Manual'}</Text>
+        </View>
       </View>
-    </View>
+
+      <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+
+      {item.description ? (
+        <Text style={styles.description} numberOfLines={2}>{item.description}</Text>
+      ) : null}
+
+      <View style={styles.footer}>
+        <Text style={styles.count}>{item.item_count} {item.item_count === 1 ? 'item' : 'items'}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -31,44 +47,55 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.card,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    overflow: 'hidden',
+    padding: 14,
   },
-  coverGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  pressed: {
+    opacity: 0.85,
   },
-  coverTile: {
-    width: '50%',
-    height: 54,
-  },
-  body: {
-    padding: 12,
-  },
-  headerRow: {
+  iconRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 8,
-    marginBottom: 10,
+    alignItems: 'flex-start',
+    marginBottom: 14,
   },
-  kind: {
-    color: theme.colors.accent,
-    fontSize: 11,
-    fontWeight: '700',
+  iconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.cardSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  count: {
-    color: theme.colors.muted,
-    fontSize: 11,
+  typeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.cardSoft,
+  },
+  typeText: {
+    color: theme.colors.secondary,
+    fontSize: 10,
+    fontWeight: '600',
   },
   name: {
     color: theme.colors.text,
-    fontSize: 18,
-    lineHeight: 22,
+    fontSize: 17,
     fontWeight: '700',
   },
-  note: {
+  description: {
     color: theme.colors.muted,
     fontSize: 13,
     lineHeight: 18,
-    marginTop: 8,
+    marginTop: 6,
+  },
+  footer: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  count: {
+    color: theme.colors.muted,
+    fontSize: 12,
   },
 });

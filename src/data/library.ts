@@ -75,3 +75,4 @@ export async function saveVideo(url: string): Promise<{
 }
 
 export { fetchCollections, fetchCollection, fetchVideoStatus } from '../api/client';
+export { toVideoItem, pickColor };
