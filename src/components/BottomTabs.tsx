@@ -1,23 +1,22 @@
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useRef } from 'react';
+import {
+  Animated,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
 import { TabKey } from '../types';
 import { theme } from '../theme';
 
-const icons: Record<TabKey, keyof typeof Feather.glyphMap> = {
-  home: 'home',
-  search: 'search',
-  collections: 'grid',
-  profile: 'user',
-};
-
-const labels: Record<TabKey, string> = {
-  home: 'Home',
-  search: 'Search',
-  collections: 'Collections',
-  profile: 'Profile',
-};
+const TAB_ITEMS: { key: TabKey; icon: keyof typeof Feather.glyphMap; label: string }[] = [
+  { key: 'home', icon: 'home', label: 'Home' },
+  { key: 'search', icon: 'search', label: 'Search' },
+  { key: 'collections', icon: 'grid', label: 'Collections' },
+  { key: 'profile', icon: 'user', label: 'Profile' },
+];
 
 export function BottomTabs({
   activeTab,
@@ -26,61 +25,104 @@ export function BottomTabs({
   activeTab: TabKey;
   onChange: (tab: TabKey) => void;
 }) {
-  return (
-    <View style={styles.bar}>
-      {(Object.keys(labels) as TabKey[]).map((tab) => {
-        const active = tab === activeTab;
+  const scales = useRef<Record<string, Animated.Value>>(
+    Object.fromEntries(
+      TAB_ITEMS.map((t) => [t.key, new Animated.Value(t.key === activeTab ? 1 : 0.92)]),
+    ),
+  ).current;
 
-        return (
-          <Pressable
-            key={tab}
-            onPress={() => onChange(tab)}
-            style={({ pressed }) => [styles.button, active && styles.buttonActive, pressed && styles.pressed]}
-          >
-            <Feather
-              name={icons[tab]}
-              size={18}
-              color={active ? theme.colors.text : theme.colors.muted}
-            />
-            <Text style={[styles.label, active && styles.labelActive]}>{labels[tab]}</Text>
-          </Pressable>
-        );
-      })}
+  const handlePress = useCallback(
+    (tab: TabKey) => {
+      if (tab === activeTab) return;
+
+      Animated.spring(scales[tab], {
+        toValue: 1,
+        friction: 5,
+        tension: 120,
+        useNativeDriver: true,
+      }).start();
+
+      Animated.spring(scales[activeTab], {
+        toValue: 0.92,
+        friction: 5,
+        tension: 120,
+        useNativeDriver: true,
+      }).start();
+
+      onChange(tab);
+    },
+    [activeTab, onChange, scales],
+  );
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.bar}>
+        {TAB_ITEMS.map((tab) => {
+          const active = tab.key === activeTab;
+
+          return (
+            <Pressable
+              key={tab.key}
+              onPress={() => handlePress(tab.key)}
+              style={styles.button}
+            >
+              <Animated.View style={[styles.iconWrap, { transform: [{ scale: scales[tab.key] }] }]}>
+                <Feather
+                  name={tab.icon}
+                  size={22}
+                  color={active ? theme.colors.text : theme.colors.tertiary}
+                />
+              </Animated.View>
+              <Text
+                style={[
+                  styles.label,
+                  { color: active ? theme.colors.text : theme.colors.tertiary },
+                ]}
+              >
+                {tab.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    bottom: 28,
+    left: 16,
+    right: 104,
+  },
   bar: {
     flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingTop: 10,
-    paddingBottom: 14,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-    backgroundColor: theme.colors.canvas,
+    alignItems: 'center',
+    justifyContent: 'space-evenly',
+    height: 80,
+    borderRadius: 44,
+    backgroundColor: theme.colors.card,
+    paddingHorizontal: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
   button: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    borderRadius: theme.radius.sm,
-    paddingVertical: 8,
+    gap: 3,
+    paddingVertical: 6,
   },
-  buttonActive: {
-    backgroundColor: theme.colors.card,
-  },
-  pressed: {
-    opacity: 0.84,
+  iconWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   label: {
-    color: theme.colors.muted,
-    fontSize: 11,
-  },
-  labelActive: {
-    color: theme.colors.text,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '600',
   },
 });

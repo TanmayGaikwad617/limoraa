@@ -51,13 +51,15 @@ export function VideoCard({
         )}
       </View>
 
-      <Text style={styles.title}>{item.title}</Text>
-      <Text style={styles.meta}>{item.creator}</Text>
-      <Text style={styles.caption}>{item.summary}</Text>
+      <View style={[styles.textBlock, isProcessing && styles.textBlockSkeleton]}>
+        <Text style={styles.title}>{item.title}</Text>
+        <Text style={styles.meta}>{item.creator}</Text>
+        <Text style={styles.caption}>{item.summary}</Text>
 
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>{item.type}</Text>
-        <Text style={styles.footerText}>{item.savedAgo}</Text>
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>{item.type}</Text>
+          <Text style={styles.footerText}>{item.savedAgo}</Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -130,6 +132,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 6,
     paddingHorizontal: 12,
+  },
+  textBlock: {
+    paddingBottom: 0,
+  },
+  textBlockSkeleton: {
+    minHeight: 112,
+    justifyContent: 'flex-start',
   },
   caption: {
     color: theme.colors.muted,

@@ -1,5 +1,5 @@
-import React, { useCallback, useRef, useState } from 'react';
-import { View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { BackHandler, View } from 'react-native';
 
 import { TabKey, VideoItem } from './types';
 import { HomeScreen } from './screens/HomeScreen';
@@ -9,11 +9,14 @@ import { CollectionDetailScreen } from './screens/CollectionDetailScreen';
 import { DetailScreen } from './screens/DetailScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { BottomTabs } from './components/BottomTabs';
+import { FAB } from './components/FAB';
+import { SaveSheet } from './components/SaveSheet';
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<TabKey | 'detail' | 'collection-detail'>('home');
   const [selectedItem, setSelectedItem] = useState<VideoItem | null>(null);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
+  const [showSaveSheet, setShowSaveSheet] = useState(false);
   const detailSourceRef = useRef<TabKey>('home');
 
   const isTab = (t: TabKey | 'detail' | 'collection-detail'): t is TabKey =>
@@ -47,6 +50,29 @@ export function AppShell() {
     setActiveTab('collections');
   }, []);
 
+  const handleSaved = useCallback((result: { is_new: boolean; video: VideoItem | null }) => {
+    if (result.video) {
+      openDetail(result.video);
+    }
+  }, [openDetail]);
+
+  useEffect(() => {
+    const onBackPress = () => {
+      if (activeTab === 'detail') {
+        closeDetail();
+        return true;
+      }
+      if (activeTab === 'collection-detail') {
+        closeCollectionDetail();
+        return true;
+      }
+      return false;
+    };
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => subscription.remove();
+  }, [activeTab, closeDetail, closeCollectionDetail]);
+
   return (
     <View style={{ flex: 1 }}>
       {activeTab === 'home' && <HomeScreen onOpen={openDetail} />}
@@ -66,7 +92,14 @@ export function AppShell() {
       )}
       {activeTab === 'profile' && <ProfileScreen />}
 
-      {isTab(activeTab) && <BottomTabs activeTab={activeTab} onChange={setActiveTab as (tab: TabKey) => void} />}
+      {isTab(activeTab) && (
+        <>
+          <BottomTabs activeTab={activeTab} onChange={setActiveTab as (tab: TabKey) => void} />
+          <FAB onPress={() => setShowSaveSheet(true)} />
+        </>
+      )}
+
+      <SaveSheet visible={showSaveSheet} onClose={() => setShowSaveSheet(false)} onSaved={handleSaved} />
     </View>
   );
 }

@@ -2,27 +2,55 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  LayoutAnimation,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  UIManager,
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
 import { fetchVideo, fetchVideos } from '../data/library';
+import { fetchCollections } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
 import { VideoItem } from '../types';
 import { MasonryColumns } from '../components/MasonryColumns';
 import { Pill } from '../components/Pill';
 import { SaveSheet } from '../components/SaveSheet';
 import { theme } from '../theme';
 
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 const PAGE_SIZE = 50;
 const quickFilters = ['All', 'TikTok', 'Instagram', 'YouTube', 'Recipes', 'Workouts', 'DIY', 'Education'];
 
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function getFirstName(user: { user_metadata?: Record<string, unknown>; email?: string } | null): string | null {
+  const fullName = user?.user_metadata?.full_name;
+  if (typeof fullName === 'string' && fullName.trim()) {
+    return fullName.trim().split(/\s+/)[0];
+  }
+  const email = user?.email;
+  if (email) return email.split('@')[0];
+  return null;
+}
+
 export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
+  const { user } = useAuth();
   const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [collectionCount, setCollectionCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -63,6 +91,14 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
       if (r.status === 'fulfilled' && r.value) updates.push(r.value);
     }
     if (updates.length === 0) return;
+
+    LayoutAnimation.configureNext(
+      LayoutAnimation.create(
+        420,
+        LayoutAnimation.Types.easeInEaseOut,
+        LayoutAnimation.Properties.opacity,
+      ),
+    );
 
     setVideos((prev) => {
       let changed = false;
@@ -159,6 +195,18 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetchCollections()
+      .then((res) => {
+        if (!cancelled) setCollectionCount(res.items.length);
+      })
+      .catch(() => {
+        /* non-critical; leave count at 0 */
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -226,7 +274,9 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
         <View style={styles.heroTop}>
           <View>
             <Text style={styles.eyebrow}>Private library</Text>
-            <Text style={styles.title}>Good morning, Christ</Text>
+            <Text style={styles.title}>
+              {getGreeting()}{getFirstName(user) ? `, ${getFirstName(user)}` : ''}
+            </Text>
             <Text style={styles.subtitle}>
               Save what matters. Browse it like a board, not like a feed.
             </Text>
@@ -241,7 +291,9 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
             <Text style={styles.statLabel}>{videos.length} Saved</Text>
           </View>
           <View style={styles.statPill}>
-            <Text style={styles.statLabel}>0 Collections</Text>
+            <Text style={styles.statLabel}>
+              {collectionCount} {collectionCount === 1 ? 'Collection' : 'Collections'}
+            </Text>
           </View>
         </View>
       </View>

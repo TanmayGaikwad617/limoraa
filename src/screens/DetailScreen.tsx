@@ -93,12 +93,14 @@ export function DetailScreen({
   const [showCollectionPicker, setShowCollectionPicker] = useState(false);
   const [pendingCollectionIds, setPendingCollectionIds] = useState<Set<string>>(new Set());
   const [collectionSubmitting, setCollectionSubmitting] = useState(false);
+  const [playerError, setPlayerError] = useState(false);
 
   useEffect(() => {
     if (!item) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setPlayerError(false);
     apiFetchVideo(item.id)
       .then((res) => {
         if (cancelled) return;
@@ -208,6 +210,17 @@ export function DetailScreen({
     );
   }, [hydrated, item, onClose, onDelete]);
 
+  const handleWebViewError = useCallback(({ nativeEvent }: { nativeEvent: { code?: number } }) => {
+    if (nativeEvent.code === 153) {
+      setPlayerError(true);
+    }
+  }, []);
+
+  const openInYouTube = useCallback(() => {
+    const url = hydrated?.source_url ?? item?.sourceUrl;
+    if (url) Linking.openURL(url);
+  }, [hydrated, item]);
+
   useEffect(() => {
     if (showTagInput) tagInputRef.current?.focus();
   }, [showTagInput]);
@@ -270,6 +283,8 @@ export function DetailScreen({
     );
   }
 
+  const sourceUrl = hydrated?.source_url ?? item.sourceUrl;
+
   const v = hydrated ?? item;
   const creator = hydrated?.creator_handle ?? hydrated?.creator_name ?? item.creator;
   const platformLabel = hydrated ? formatPlatform(hydrated.platform) : item.platform;
@@ -277,7 +292,6 @@ export function DetailScreen({
   const summary = hydrated?.summary ?? item.summary;
   const typeLabel = hydrated ? formatContentType(hydrated.content_type) : item.type;
   const embedUrl = hydrated?.embed_url ?? item.embedUrl;
-  const sourceUrl = hydrated?.source_url ?? item.sourceUrl;
 
   const isPlayer =
     platformLabel === 'YouTube' || platformLabel === 'TikTok' || !!embedUrl;
@@ -316,14 +330,27 @@ export function DetailScreen({
         </View>
 
         <View style={styles.playerFrame}>
-          {isPlayer ? (
+          {isPlayer && !playerError ? (
             <WebView
               source={{ uri: embedUrl ?? sourceUrl }}
               style={styles.webview}
               javaScriptEnabled
               allowsInlineMediaPlayback
               mediaPlaybackRequiresUserAction
+              onError={handleWebViewError}
             />
+          ) : isPlayer && playerError ? (
+            <View style={[styles.skeletonPoster, { backgroundColor: theme.colors.cardSoft }]}>
+              <Feather name="eye-off" size={32} color={theme.colors.tertiary} />
+              <Text style={styles.playerErrorTitle}>Embedding disabled</Text>
+              <Text style={styles.playerErrorCopy}>
+                This video cannot be embedded. Open it in the YouTube app instead.
+              </Text>
+              <Pressable style={styles.openInAppButton} onPress={openInYouTube}>
+                <Feather name="external-link" size={16} color={theme.colors.white} />
+                <Text style={styles.openInAppButtonText}>Open in YouTube</Text>
+              </Pressable>
+            </View>
           ) : (
             <View style={[styles.skeletonPoster, { backgroundColor: item.thumbnailColor }]}>
               <Feather name="film" size={32} color={theme.colors.white} />
@@ -674,6 +701,35 @@ const styles = StyleSheet.create({
   webview: {
     height: 360,
     backgroundColor: theme.colors.cardSoft,
+  },
+  playerErrorTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.text,
+    marginTop: 14,
+  },
+  playerErrorCopy: {
+    fontSize: 13,
+    color: theme.colors.muted,
+    textAlign: 'center',
+    marginTop: 6,
+    marginHorizontal: 32,
+    lineHeight: 18,
+  },
+  openInAppButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: theme.colors.text,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: theme.radius.md,
+    marginTop: 18,
+  },
+  openInAppButtonText: {
+    color: theme.colors.white,
+    fontSize: 14,
+    fontWeight: '600',
   },
   skeletonPoster: {
     minHeight: 360,
