@@ -10,6 +10,15 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import Animated, {
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Feather } from '@expo/vector-icons';
 
 import { saveVideo } from '../data/library';
@@ -22,20 +31,27 @@ type SaveSheetProps = {
   onSaved: (result: { is_new: boolean; video: VideoItem | null }) => void;
 };
 
+const DISMISS_VELOCITY = 800;
+const DISMISS_RATIO = 0.25;
+
 export function SaveSheet({ visible, onClose, onSaved }: SaveSheetProps) {
   const [url, setUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sheetHeight, setSheetHeight] = useState(0);
   const inputRef = useRef<TextInput>(null);
+
+  const translateY = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
       setUrl('');
       setError(null);
       setSaving(false);
+      translateY.value = 0;
       setTimeout(() => inputRef.current?.focus(), 300);
     }
-  }, [visible]);
+  }, [visible, translateY]);
 
   const handleSave = async () => {
     const trimmed = url.trim();
@@ -64,6 +80,34 @@ export function SaveSheet({ visible, onClose, onSaved }: SaveSheetProps) {
 
   const canSave = url.trim().length > 0 && !saving;
 
+  const panGesture = Gesture.Pan()
+    .onUpdate((e) => {
+      translateY.value = Math.max(0, e.translationY);
+    })
+    .onEnd((e) => {
+      const shouldDismiss =
+        e.velocityY > DISMISS_VELOCITY ||
+        (sheetHeight > 0 && e.translationY > sheetHeight * DISMISS_RATIO);
+      if (shouldDismiss) {
+        translateY.value = withTiming(sheetHeight || 600, { duration: 200 }, () => {
+          runOnJS(onClose)();
+        });
+      } else {
+        translateY.value = withSpring(0, { damping: 18, stiffness: 220 });
+      }
+    });
+
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  const backdropStyle = useAnimatedStyle(() => {
+    const max = sheetHeight || 600;
+    return {
+      opacity: interpolate(translateY.value, [0, max], [1, 0], 'clamp'),
+    };
+  });
+
   return (
     <Modal
       visible={visible}
@@ -75,59 +119,66 @@ export function SaveSheet({ visible, onClose, onSaved }: SaveSheetProps) {
         style={styles.overlay}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.handle} />
-          <View style={styles.header}>
-            <View style={styles.headerIcon}>
-              <Feather name="link" size={18} color={theme.colors.text} />
-            </View>
-            <Text style={styles.title}>Save a video</Text>
-            <Text style={styles.subtitle}>
-              Paste a link from YouTube, Instagram, or TikTok
-            </Text>
-          </View>
-
-          <TextInput
-            ref={inputRef}
-            style={[styles.input, error ? styles.inputError : null]}
-            value={url}
-            onChangeText={(text) => {
-              setUrl(text);
-              if (error) setError(null);
-            }}
-            placeholder="https://www.youtube.com/watch?v=..."
-            placeholderTextColor={theme.colors.muted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            editable={!saving}
-            returnKeyType="go"
-            onSubmitEditing={handleSave}
-          />
-
-          {error && (
-            <View style={styles.errorRow}>
-              <Feather name="alert-circle" size={14} color={theme.colors.danger} />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
-
-          <Pressable
-            style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
-            onPress={handleSave}
-            disabled={!canSave}
+        <Animated.View style={[styles.backdrop, backdropStyle]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        </Animated.View>
+        <GestureDetector gesture={panGesture}>
+          <Animated.View
+            style={[styles.sheet, sheetStyle]}
+            onLayout={(e) => setSheetHeight(e.nativeEvent.layout.height)}
           >
-            {saving ? (
-              <ActivityIndicator size="small" color={theme.colors.white} />
-            ) : (
-              <>
-                <Feather name="download" size={16} color={theme.colors.white} />
-                <Text style={styles.saveButtonText}>Save</Text>
-              </>
+            <View style={styles.handle} />
+            <View style={styles.header}>
+              <View style={styles.headerIcon}>
+                <Feather name="link" size={18} color={theme.colors.text} />
+              </View>
+              <Text style={styles.title}>Save a video</Text>
+              <Text style={styles.subtitle}>
+                Paste a link from YouTube, Instagram, or TikTok
+              </Text>
+            </View>
+
+            <TextInput
+              ref={inputRef}
+              style={[styles.input, error ? styles.inputError : null]}
+              value={url}
+              onChangeText={(text) => {
+                setUrl(text);
+                if (error) setError(null);
+              }}
+              placeholder="https://www.youtube.com/watch?v=..."
+              placeholderTextColor={theme.colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              editable={!saving}
+              returnKeyType="go"
+              onSubmitEditing={handleSave}
+            />
+
+            {error && (
+              <View style={styles.errorRow}>
+                <Feather name="alert-circle" size={14} color={theme.colors.danger} />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
             )}
-          </Pressable>
-        </View>
+
+            <Pressable
+              style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
+              onPress={handleSave}
+              disabled={!canSave}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color={theme.colors.white} />
+              ) : (
+                <>
+                  <Feather name="download" size={16} color={theme.colors.white} />
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </>
+              )}
+            </Pressable>
+          </Animated.View>
+        </GestureDetector>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -139,7 +190,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
   sheet: {

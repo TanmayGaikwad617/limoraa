@@ -11,6 +11,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 import { WebView } from 'react-native-webview';
 import { Feather } from '@expo/vector-icons';
 
@@ -25,7 +32,62 @@ import {
 } from '../api/client';
 import { VideoItem, HydratedVideo, CollectionItem } from '../types';
 import { theme } from '../theme';
-import { formatRelativeTime, formatPlatform, formatContentType } from '../utils/format';
+import {
+  formatRelativeTime,
+  formatPlatform,
+  formatContentType,
+  formatDuration,
+} from '../utils/format';
+
+// Vertical fields that duplicate other sections or are internal-only noise.
+const SKIP_VERTICAL_FIELDS = new Set(['summary', 'confidence']);
+
+function CollapsibleText({ text, lines = 6 }: { text: string; lines?: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > 220;
+  return (
+    <View>
+      <Text style={styles.body} numberOfLines={expanded || !isLong ? undefined : lines}>
+        {text}
+      </Text>
+      {isLong ? (
+        <Pressable hitSlop={8} onPress={() => setExpanded((v) => !v)}>
+          <Text style={styles.showMore}>{expanded ? 'Show less' : 'Show more'}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function HashtagList({ tags }: { tags: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const LIMIT = 8;
+  const overflow = tags.length - LIMIT;
+  const shown = expanded ? tags : tags.slice(0, LIMIT);
+  return (
+    <View style={styles.tagRow}>
+      {shown.map((h) => (
+        <View key={h} style={styles.aiTag}>
+          <Text style={styles.aiTagText}>{h}</Text>
+        </View>
+      ))}
+      {overflow > 0 ? (
+        <Pressable style={styles.moreTag} onPress={() => setExpanded((v) => !v)}>
+          <Text style={styles.moreTagText}>{expanded ? 'Show less' : `+${overflow} more`}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function SectionHeader({ icon, title }: { icon: keyof typeof Feather.glyphMap; title: string }) {
+  return (
+    <View style={styles.sectionHeaderRow}>
+      <Feather name={icon} size={15} color={theme.colors.secondary} />
+      <Text style={styles.sectionTitle}>{title}</Text>
+    </View>
+  );
+}
 
 const VERTICAL_FIELD_LABELS: Record<string, Record<string, string>> = {
   recipe: {
@@ -225,6 +287,21 @@ export function DetailScreen({
     if (showTagInput) tagInputRef.current?.focus();
   }, [showTagInput]);
 
+  const scrollY = useSharedValue(0);
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
+
+  const heroAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.value, [0, 80, 140], [1, 0.85, 0.55], Extrapolation.CLAMP),
+    transform: [
+      { scale: interpolate(scrollY.value, [0, 140], [1, 0.88], Extrapolation.CLAMP) },
+      { translateY: interpolate(scrollY.value, [0, 140], [0, -8], Extrapolation.CLAMP) },
+    ],
+  }));
+
   if (!item) {
     return (
       <View style={styles.center}>
@@ -292,9 +369,12 @@ export function DetailScreen({
   const summary = hydrated?.summary ?? item.summary;
   const typeLabel = hydrated ? formatContentType(hydrated.content_type) : item.type;
   const embedUrl = hydrated?.embed_url ?? item.embedUrl;
+  const duration = hydrated?.duration_seconds ? formatDuration(hydrated.duration_seconds) : null;
 
   const isPlayer =
     platformLabel === 'YouTube' || platformLabel === 'TikTok' || !!embedUrl;
+  // Vertical-first platforms render 9:16; everything else is treated as 16:9.
+  const isVertical = platformLabel === 'TikTok' || platformLabel === 'Instagram';
 
   const analysis = hydrated?.analysis as Record<string, unknown> | null;
   const topic = analysis?.topic as string | undefined;
@@ -311,25 +391,50 @@ export function DetailScreen({
   const hashtags = hydrated?.hashtags?.length ? hydrated.hashtags : null;
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+    <Animated.ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.content}
+      onScroll={scrollHandler}
+      scrollEventThrottle={16}
+    >
       <Pressable style={styles.backButton} onPress={onClose}>
         <Feather name="chevron-left" size={20} color={theme.colors.text} />
         <Text style={styles.backText}>Back</Text>
       </Pressable>
 
       <View style={styles.playerCard}>
-        <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.eyebrow}>{typeLabel}</Text>
-            <Text style={styles.title}>{v.title}</Text>
-            <Text style={styles.creator}>{creator}</Text>
+        <Animated.View style={[styles.headerWrap, heroAnimatedStyle]}>
+          <View style={styles.headerRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.eyebrow}>{typeLabel}</Text>
+              <Text style={styles.title}>{v.title}</Text>
+              <Text style={styles.creator}>{creator}</Text>
+            </View>
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{platformLabel}</Text>
+            </View>
           </View>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{platformLabel}</Text>
-          </View>
-        </View>
 
-        <View style={styles.playerFrame}>
+          <View style={styles.metaStrip}>
+            {duration ? (
+              <View style={styles.metaItem}>
+                <Feather name="clock" size={12} color={theme.colors.muted} />
+                <Text style={styles.metaText}>{duration}</Text>
+              </View>
+            ) : null}
+            <View style={styles.metaItem}>
+              <Feather name="bookmark" size={12} color={theme.colors.muted} />
+              <Text style={styles.metaText}>Saved {savedAgo}</Text>
+            </View>
+          </View>
+        </Animated.View>
+
+        <View
+          style={[
+            styles.playerFrame,
+            isVertical ? styles.playerFrameVertical : styles.playerFrameLandscape,
+          ]}
+        >
           {isPlayer && !playerError ? (
             <WebView
               source={{ uri: embedUrl ?? sourceUrl }}
@@ -340,7 +445,7 @@ export function DetailScreen({
               onError={handleWebViewError}
             />
           ) : isPlayer && playerError ? (
-            <View style={[styles.skeletonPoster, { backgroundColor: theme.colors.cardSoft }]}>
+            <View style={[styles.fillPoster, { backgroundColor: theme.colors.cardSoft }]}>
               <Feather name="eye-off" size={32} color={theme.colors.tertiary} />
               <Text style={styles.playerErrorTitle}>Embedding disabled</Text>
               <Text style={styles.playerErrorCopy}>
@@ -352,7 +457,7 @@ export function DetailScreen({
               </Pressable>
             </View>
           ) : (
-            <View style={[styles.skeletonPoster, { backgroundColor: item.thumbnailColor }]}>
+            <View style={[styles.fillPoster, { backgroundColor: item.thumbnailColor }]}>
               <Feather name="film" size={32} color={theme.colors.white} />
             </View>
           )}
@@ -360,45 +465,26 @@ export function DetailScreen({
       </View>
 
       {summary ? (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Summary</Text>
-          <Text style={styles.body}>{summary}</Text>
-        </View>
-      ) : null}
-
-      {(caption || description || hashtags) ? (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Metadata</Text>
-          {caption ? (
-            <View style={styles.fieldRow}>
-              <Text style={styles.fieldLabel}>Caption</Text>
-              <Text style={styles.body}>{caption}</Text>
-            </View>
-          ) : null}
-          {description ? (
-            <View style={styles.fieldRow}>
-              <Text style={styles.fieldLabel}>Description</Text>
-              <Text style={styles.body}>{description}</Text>
-            </View>
-          ) : null}
-          {hashtags ? (
-            <View style={styles.fieldRow}>
-              <Text style={styles.fieldLabel}>Hashtags</Text>
-              <View style={styles.tagRow}>
-                {hashtags.map((h) => (
-                  <View key={h} style={styles.aiTag}>
-                    <Text style={styles.aiTagText}>{h}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
+        <View style={styles.summaryCard}>
+          <SectionHeader icon="align-left" title="Summary" />
+          <Text style={styles.summaryBody}>{summary}</Text>
         </View>
       ) : null}
 
       {topic || formatVal || intent || audience || qualityScore !== undefined ? (
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>AI Analysis</Text>
+          <SectionHeader icon="cpu" title="AI Analysis" />
+          {qualityScore !== undefined ? (
+            <View style={styles.qualityBlock}>
+              <View style={styles.qualityHeader}>
+                <Text style={styles.qualityLabel}>Quality score</Text>
+                <Text style={styles.qualityValue}>{qualityScore}<Text style={styles.qualityMax}>/100</Text></Text>
+              </View>
+              <View style={styles.qualityTrack}>
+                <View style={[styles.qualityFill, { width: `${Math.min(100, Math.max(0, qualityScore))}%` }]} />
+              </View>
+            </View>
+          ) : null}
           <View style={styles.infoGrid}>
             {topic ? (
               <View style={styles.infoBlock}>
@@ -424,23 +510,19 @@ export function DetailScreen({
                 <Text style={styles.infoValue}>{audience}</Text>
               </View>
             ) : null}
-            {qualityScore !== undefined ? (
-              <View style={styles.infoBlock}>
-                <Text style={styles.infoLabel}>Quality score</Text>
-                <Text style={styles.infoValue}>{qualityScore}/100</Text>
-              </View>
-            ) : null}
           </View>
         </View>
       ) : null}
 
       {verticalType && verticalFields && verticalType !== 'general' ? (
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>
-            {verticalType.charAt(0).toUpperCase() + verticalType.slice(1).replace(/_/g, ' ')} details
-          </Text>
+          <SectionHeader
+            icon="layers"
+            title={`${verticalType.charAt(0).toUpperCase() + verticalType.slice(1).replace(/_/g, ' ')} details`}
+          />
           <View style={styles.infoGrid}>
             {Object.entries(verticalFields).map(([key, val]) => {
+              if (SKIP_VERTICAL_FIELDS.has(key)) return null;
               const label = VERTICAL_FIELD_LABELS[verticalType]?.[key] ?? key;
               const display = Array.isArray(val) ? val.join(', ') : String(val ?? '');
               if (!display) return null;
@@ -455,8 +537,32 @@ export function DetailScreen({
         </View>
       ) : null}
 
+      {(caption || description || hashtags) ? (
+        <View style={styles.card}>
+          <SectionHeader icon="file-text" title="Original details" />
+          {caption ? (
+            <View style={styles.fieldRow}>
+              <Text style={styles.fieldLabel}>Caption</Text>
+              <CollapsibleText text={caption} />
+            </View>
+          ) : null}
+          {description ? (
+            <View style={styles.fieldRow}>
+              <Text style={styles.fieldLabel}>Description</Text>
+              <CollapsibleText text={description} />
+            </View>
+          ) : null}
+          {hashtags ? (
+            <View style={styles.fieldRow}>
+              <Text style={styles.fieldLabel}>Hashtags</Text>
+              <HashtagList tags={hashtags} />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Tags</Text>
+        <SectionHeader icon="tag" title="Tags" />
         {userTags.length > 0 ? (
           <View style={styles.tagRow}>
             {userTags.map((tag) => (
@@ -473,13 +579,16 @@ export function DetailScreen({
         )}
 
         {aiTags.length > 0 || analysisTags.length > 0 ? (
-          <View style={[styles.tagRow, { marginTop: 10 }]}>
-            {(aiTags.length > 0 ? aiTags : analysisTags).map((tag) => (
-              <View key={tag} style={styles.aiTag}>
-                <Text style={styles.aiTagText}>{tag}</Text>
-              </View>
-            ))}
-          </View>
+          <>
+            <Text style={styles.tagGroupLabel}>Suggested</Text>
+            <View style={styles.tagRow}>
+              {(aiTags.length > 0 ? aiTags : analysisTags).map((tag) => (
+                <View key={tag} style={styles.aiTag}>
+                  <Text style={styles.aiTagText}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          </>
         ) : null}
 
         {showTagInput ? (
@@ -515,7 +624,7 @@ export function DetailScreen({
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Collections</Text>
+        <SectionHeader icon="folder" title="Collections" />
         {hydrated && hydrated.collections.length > 0 ? (
           <View style={styles.tagRow}>
             {hydrated.collections.map((c) => (
@@ -533,30 +642,10 @@ export function DetailScreen({
         </Pressable>
       </View>
 
-      <View style={styles.card}>
-        <View style={styles.infoGrid}>
-          <View style={styles.infoBlock}>
-            <Text style={styles.infoLabel}>Status</Text>
-            <Text style={styles.infoValue}>{v.status}</Text>
-          </View>
-          <View style={styles.infoBlock}>
-            <Text style={styles.infoLabel}>Saved</Text>
-            <Text style={styles.infoValue}>{savedAgo}</Text>
-          </View>
-          <View style={styles.infoBlock}>
-            <Text style={styles.infoLabel}>Type</Text>
-            <Text style={styles.infoValue}>{typeLabel}</Text>
-          </View>
-          <View style={styles.infoBlock}>
-            <Text style={styles.infoLabel}>Creator</Text>
-            <Text style={styles.infoValue} numberOfLines={1}>{creator}</Text>
-          </View>
-        </View>
-        <Pressable style={styles.linkButton} onPress={() => Linking.openURL(sourceUrl)}>
-          <Feather name="external-link" size={16} color={theme.colors.card} />
-          <Text style={styles.linkText}>Open original</Text>
-        </Pressable>
-      </View>
+      <Pressable style={styles.linkButton} onPress={() => Linking.openURL(sourceUrl)}>
+        <Feather name="external-link" size={16} color={theme.colors.card} />
+        <Text style={styles.linkText}>Open original on {platformLabel}</Text>
+      </Pressable>
 
       <Pressable style={styles.deleteButton} onPress={handleDelete}>
         <Feather name="trash-2" size={16} color={theme.colors.danger} />
@@ -611,7 +700,7 @@ export function DetailScreen({
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }
 
@@ -696,11 +785,25 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginTop: 16,
     backgroundColor: theme.colors.cardSoft,
-    minHeight: 360,
+  },
+  playerFrameLandscape: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+  },
+  playerFrameVertical: {
+    alignSelf: 'center',
+    width: '72%',
+    aspectRatio: 9 / 16,
   },
   webview: {
-    height: 360,
+    flex: 1,
     backgroundColor: theme.colors.cardSoft,
+  },
+  fillPoster: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
   },
   playerErrorTitle: {
     fontSize: 16,
@@ -743,11 +846,106 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: 16,
   },
+  summaryCard: {
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.cardSoft,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 16,
+  },
+  summaryBody: {
+    color: theme.colors.text,
+    fontSize: 15,
+    lineHeight: 23,
+  },
+  headerWrap: {
+    gap: 14,
+  },
+  metaStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  metaText: {
+    color: theme.colors.muted,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  qualityBlock: {
+    marginBottom: 16,
+  },
+  qualityHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginBottom: 8,
+  },
+  qualityLabel: {
+    color: theme.colors.muted,
+    fontSize: 12,
+  },
+  qualityValue: {
+    color: theme.colors.text,
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  qualityMax: {
+    color: theme.colors.tertiary,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  qualityTrack: {
+    height: 8,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.cardSoft,
+    overflow: 'hidden',
+  },
+  qualityFill: {
+    height: '100%',
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.text,
+  },
+  tagGroupLabel: {
+    color: theme.colors.tertiary,
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  moreTag: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  moreTagText: {
+    color: theme.colors.accent,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
   sectionTitle: {
     color: theme.colors.text,
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
-    marginBottom: 12,
+  },
+  showMore: {
+    color: theme.colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 8,
   },
   body: {
     color: theme.colors.text,
@@ -888,13 +1086,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   linkButton: {
-    marginTop: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     borderRadius: theme.radius.md,
-    paddingVertical: 14,
+    paddingVertical: 16,
     backgroundColor: theme.colors.text,
   },
   linkText: {

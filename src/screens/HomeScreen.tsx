@@ -6,18 +6,25 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   UIManager,
   View,
 } from 'react-native';
+import Animated, {
+  SharedValue,
+  runOnJS,
+  useAnimatedScrollHandler,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
 
 import { fetchVideo, fetchVideos } from '../data/library';
-import { fetchCollections } from '../api/client';
+import { fetchCollections, deleteVideo } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { VideoItem } from '../types';
+import { CardRect } from '../components/VideoCard';
 import { MasonryColumns } from '../components/MasonryColumns';
 import { Pill } from '../components/Pill';
 import { SaveSheet } from '../components/SaveSheet';
@@ -47,7 +54,13 @@ function getFirstName(user: { user_metadata?: Record<string, unknown>; email?: s
   return null;
 }
 
-export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
+export function HomeScreen({
+  onOpen,
+  fabHidden,
+}: {
+  onOpen: (item: VideoItem, sourceRect?: CardRect) => void;
+  fabHidden?: SharedValue<number>;
+}) {
   const { user } = useAuth();
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [collectionCount, setCollectionCount] = useState(0);
@@ -157,6 +170,21 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
     );
   }, []);
 
+  const handleSwipeDelete = useCallback(async (item: VideoItem) => {
+    setVideos((prev) => prev.filter((v) => v.id !== item.id));
+    setToast({ message: 'Deleted', type: 'success' });
+    try {
+      await deleteVideo(item.id);
+    } catch {
+      setVideos((prev) => [item, ...prev]);
+      setToast({ message: 'Failed to delete, restored', type: 'info' });
+    }
+  }, []);
+
+  const handleSwipeMove = useCallback((_item: VideoItem) => {
+    setToast({ message: 'Open the video to move it to a collection', type: 'info' });
+  }, []);
+
   const loadVideos = useCallback(async (reset = false) => {
     const currentOffset = reset ? 0 : offset;
     try {
@@ -228,6 +256,31 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
     loadVideos(false).finally(() => setLoadingMore(false));
   }, [hasMore, loadingMore, loadVideos]);
 
+  const lastY = useSharedValue(0);
+  const SCROLL_DELTA = 12;
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      const y = event.contentOffset.y;
+      const delta = y - lastY.value;
+      if (!fabHidden) return;
+      if (y < 24) {
+        fabHidden.value = withTiming(0, { duration: 180 });
+      } else if (delta > SCROLL_DELTA) {
+        fabHidden.value = withTiming(1, { duration: 220 });
+      } else if (delta < -SCROLL_DELTA) {
+        fabHidden.value = withTiming(0, { duration: 220 });
+      }
+      lastY.value = y;
+    },
+    onMomentumEnd: (event) => {
+      const { layoutMeasurement, contentOffset, contentSize } = event;
+      if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 200) {
+        runOnJS(onScrollEnd)();
+      }
+    },
+  }, [onScrollEnd, fabHidden]);
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -237,16 +290,12 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
   }
 
   return (
-    <ScrollView
+    <Animated.ScrollView
       showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      onMomentumScrollEnd={({ nativeEvent }) => {
-        const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
-        if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 200) {
-          onScrollEnd();
-        }
-      }}
+      onScroll={scrollHandler}
+      scrollEventThrottle={16}
     >
       {error && (
         <View style={styles.errorBanner}>
@@ -369,7 +418,13 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
           </Text>
         </View>
       ) : (
-        <MasonryColumns items={videos} onOpen={onOpen} onRetry={handleRetry} />
+        <MasonryColumns
+          items={videos}
+          onOpen={onOpen}
+          onRetry={handleRetry}
+          onDelete={handleSwipeDelete}
+          onMoveToCollection={handleSwipeMove}
+        />
       )}
 
       {loadingMore && (
@@ -381,7 +436,7 @@ export function HomeScreen({ onOpen }: { onOpen: (item: VideoItem) => void }) {
         onClose={() => setShowSaveSheet(false)}
         onSaved={handleSaved}
       />
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }
 

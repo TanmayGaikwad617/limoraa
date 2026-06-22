@@ -1,32 +1,44 @@
-import React, { useCallback, useRef } from 'react';
-import { Animated, Pressable, StyleSheet } from 'react-native';
+import React, { useCallback } from 'react';
+import { Pressable, StyleSheet } from 'react-native';
+import Animated, {
+  SharedValue,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
 
 import { theme } from '../theme';
 
-export function FAB({ onPress }: { onPress: () => void }) {
-  const scale = useRef(new Animated.Value(1)).current;
+export function FAB({
+  onPress,
+  hidden,
+}: {
+  onPress: () => void;
+  hidden?: SharedValue<number>;
+}) {
+  const scale = useSharedValue(1);
 
   const handlePressIn = useCallback(() => {
-    Animated.spring(scale, {
-      toValue: 0.88,
-      friction: 6,
-      tension: 160,
-      useNativeDriver: true,
-    }).start();
+    scale.value = withSpring(0.88, { damping: 15, stiffness: 220 });
   }, [scale]);
 
   const handlePressOut = useCallback(() => {
-    Animated.spring(scale, {
-      toValue: 1,
-      friction: 4,
-      tension: 120,
-      useNativeDriver: true,
-    }).start();
+    scale.value = withSpring(1, { damping: 12, stiffness: 160 });
   }, [scale]);
 
+  const animatedStyle = useAnimatedStyle(() => {
+    const hideAmount = hidden?.value ?? 0;
+    const translateY = interpolate(hideAmount, [0, 1], [0, 140]);
+    return {
+      transform: [{ translateY }, { scale: scale.value }],
+      opacity: interpolate(hideAmount, [0, 1], [1, 0]),
+    };
+  });
+
   return (
-    <Animated.View style={[styles.wrapper, { transform: [{ scale }] }]}>
+    <Animated.View style={[styles.wrapper, animatedStyle]}>
       <Pressable
         onPress={onPress}
         onPressIn={handlePressIn}

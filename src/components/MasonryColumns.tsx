@@ -2,30 +2,55 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { VideoItem } from '../types';
-import { VideoCard } from './VideoCard';
+import { VideoCard, CardRect } from './VideoCard';
 
 export function MasonryColumns({
   items,
   onOpen,
   onRetry,
+  onDelete,
+  onMoveToCollection,
 }: {
   items: VideoItem[];
-  onOpen: (item: VideoItem) => void;
+  onOpen: (item: VideoItem, sourceRect?: CardRect) => void;
   onRetry?: (item: VideoItem) => void;
+  onDelete?: (item: VideoItem) => void;
+  onMoveToCollection?: (item: VideoItem) => void;
 }) {
-  const left = items.filter((_, index) => index % 2 === 0);
-  const right = items.filter((_, index) => index % 2 === 1);
+  const left: { item: VideoItem; globalIndex: number }[] = [];
+  const right: { item: VideoItem; globalIndex: number }[] = [];
+  items.forEach((item, globalIndex) => {
+    (globalIndex % 2 === 0 ? left : right).push({ item, globalIndex });
+  });
 
   return (
     <View style={styles.grid}>
       <View style={styles.column}>
-        {left.map((item, index) => (
-          <VideoCard key={item.id} item={item} onPress={() => onOpen(item)} tall={index % 2 === 0} onRetry={onRetry ? () => onRetry(item) : undefined} />
+        {left.map(({ item, globalIndex }, index) => (
+          <VideoCard
+            key={item.id}
+            item={item}
+            index={globalIndex}
+            onPress={(rect) => onOpen(item, rect)}
+            tall={index % 2 === 0}
+            onRetry={onRetry ? () => onRetry(item) : undefined}
+            onDelete={onDelete ? () => onDelete(item) : undefined}
+            onMoveToCollection={onMoveToCollection ? () => onMoveToCollection(item) : undefined}
+          />
         ))}
       </View>
       <View style={styles.column}>
-        {right.map((item, index) => (
-          <VideoCard key={item.id} item={item} onPress={() => onOpen(item)} tall={index % 2 !== 0} onRetry={onRetry ? () => onRetry(item) : undefined} />
+        {right.map(({ item, globalIndex }, index) => (
+          <VideoCard
+            key={item.id}
+            item={item}
+            index={globalIndex}
+            onPress={(rect) => onOpen(item, rect)}
+            tall={index % 2 !== 0}
+            onRetry={onRetry ? () => onRetry(item) : undefined}
+            onDelete={onDelete ? () => onDelete(item) : undefined}
+            onMoveToCollection={onMoveToCollection ? () => onMoveToCollection(item) : undefined}
+          />
         ))}
       </View>
     </View>
