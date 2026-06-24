@@ -1,5 +1,4 @@
 import type { ParsedVideoMetadata } from "./types.js";
-import { env } from "../../config/env.js";
 
 type InstagramOEmbedResponse = {
   title?: string | null;
@@ -42,8 +41,8 @@ export function extractInstagramShortcode(url: string): string | null {
 }
 
 async function requestAppToken(): Promise<string | null> {
-  const appId = env.INSTAGRAM_APP_ID?.trim();
-  const appSecret = env.INSTAGRAM_APP_SECRET?.trim();
+  const appId = process.env.INSTAGRAM_APP_ID?.trim();
+  const appSecret = process.env.INSTAGRAM_APP_SECRET?.trim();
 
   if (!appId || !appSecret) {
     console.warn("INSTAGRAM_APP_ID and/or INSTAGRAM_APP_SECRET are not set");
@@ -81,10 +80,9 @@ async function requestAppToken(): Promise<string | null> {
   }
 }
 
-cachedAppToken = requestAppToken();
-
 export function getAppToken(): Promise<string | null> {
-  return cachedAppToken ?? requestAppToken();
+  cachedAppToken ??= requestAppToken();
+  return cachedAppToken;
 }
 
 async function fetchInstagramOEmbed(originalUrl: string, appToken: string): Promise<InstagramOEmbedResponse | null> {

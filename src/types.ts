@@ -9,11 +9,13 @@ export interface VideoItem {
   status: string;
   type: string;
   thumbnailColor: string;
+  thumbnailUrl?: string;
   savedAgo: string;
   tags: string[];
   collection: string;
   sourceUrl: string;
   embedUrl?: string;
+  embedHtml?: string;
 }
 
 export interface HydratedVideo {

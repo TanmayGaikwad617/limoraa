@@ -1,6 +1,6 @@
 import { AppError } from "./errors.js";
 
-export type SupportedPlatform = "tiktok" | "instagram" | "youtube";
+export type SupportedPlatform = "tiktok" | "instagram" | "youtube" | "twitter";
 
 export interface NormalizedVideoUrl {
   canonical: string;
@@ -84,6 +84,24 @@ function canonicalizeTiktok(url: URL): NormalizedVideoUrl {
   };
 }
 
+function canonicalizeTwitter(url: URL): NormalizedVideoUrl {
+  const segments = url.pathname.split("/").filter(Boolean);
+  const statusIndex = segments.indexOf("status");
+  const videoId = statusIndex >= 0 ? segments[statusIndex + 1] ?? "" : "";
+
+  if (!videoId) {
+    throw new AppError(400, "unsupported_url", "Unsupported Twitter/X URL format");
+  }
+
+  const handle = segments[0] && segments[0] !== "i" ? segments[0] : "i";
+  const canonical = `https://x.com/${handle}/status/${videoId}`;
+  return {
+    canonical,
+    platform: "twitter",
+    platformVideoId: videoId,
+  };
+}
+
 export function normalizeVideoUrl(rawUrl: string): NormalizedVideoUrl {
   let url: URL;
 
@@ -108,6 +126,10 @@ export function normalizeVideoUrl(rawUrl: string): NormalizedVideoUrl {
 
   if (host.endsWith("tiktok.com")) {
     return canonicalizeTiktok(url);
+  }
+
+  if (host === "x.com" || host === "twitter.com" || host === "mobile.twitter.com") {
+    return canonicalizeTwitter(url);
   }
 
   throw new AppError(400, "unsupported_platform", "Unsupported platform URL");

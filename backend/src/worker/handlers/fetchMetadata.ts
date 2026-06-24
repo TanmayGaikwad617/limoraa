@@ -18,7 +18,9 @@ type StubMetadata = {
   creator_name: string;
   creator_handle: string;
   thumbnail_url: string;
-  embed_url: string;
+  embed_url: string | null;
+  embed_html: string | null;
+  duration_seconds: number | null;
   hashtags: string[];
   language: string;
 };
@@ -41,7 +43,7 @@ type LoadedVideo = Pick<
 >;
 
 function assertSupportedPlatform(platform: string): SupportedPlatform {
-  if (platform === "youtube" || platform === "instagram" || platform === "tiktok") {
+  if (platform === "youtube" || platform === "instagram" || platform === "tiktok" || platform === "twitter") {
     return platform;
   }
 
@@ -61,6 +63,8 @@ function buildStubMetadata(video: LoadedVideo): StubMetadata {
       creator_handle: `@youtube_${handleSuffix}`,
       thumbnail_url: `https://placehold.co/640x360/png?text=YouTube+${encodeURIComponent(handleSuffix)}`,
       embed_url: `https://www.youtube.com/embed/${platformVideoId}`,
+      embed_html: `<iframe width="560" height="315" src="https://www.youtube.com/embed/${platformVideoId}" frameborder="0" allowfullscreen></iframe>`,
+      duration_seconds: null,
       hashtags: ["youtube", "stub", "metadata"],
       language: "en",
     }),
@@ -71,6 +75,8 @@ function buildStubMetadata(video: LoadedVideo): StubMetadata {
       creator_handle: `@instagram_${handleSuffix}`,
       thumbnail_url: `https://placehold.co/640x360/png?text=Instagram+${encodeURIComponent(handleSuffix)}`,
       embed_url: `https://www.instagram.com/reel/${platformVideoId}/embed/`,
+      embed_html: null,
+      duration_seconds: null,
       hashtags: ["instagram", "stub", "metadata"],
       language: "en",
     }),
@@ -81,7 +87,21 @@ function buildStubMetadata(video: LoadedVideo): StubMetadata {
       creator_handle: `@tiktok_${handleSuffix}`,
       thumbnail_url: `https://placehold.co/640x360/png?text=TikTok+${encodeURIComponent(handleSuffix)}`,
       embed_url: `https://www.tiktok.com/embed/v2/${platformVideoId}`,
+      embed_html: null,
+      duration_seconds: null,
       hashtags: ["tiktok", "stub", "metadata"],
+      language: "en",
+    }),
+    twitter: () => ({
+      title: `Stub Twitter/X post for ${platformVideoId}`,
+      description: `Stub Twitter/X description for ${platformVideoId}.`,
+      creator_name: "Twitter Creator",
+      creator_handle: `@twitter_${handleSuffix}`,
+      thumbnail_url: `https://placehold.co/640x360/png?text=X+${encodeURIComponent(handleSuffix)}`,
+      embed_url: `https://platform.twitter.com/embed/Tweet.html?id=${encodeURIComponent(platformVideoId)}`,
+      embed_html: null,
+      duration_seconds: null,
+      hashtags: ["twitter", "x", "stub", "metadata"],
       language: "en",
     }),
   };
@@ -102,6 +122,8 @@ function buildMetadataFromYouTube(video: LoadedVideo, metadata: Awaited<ReturnTy
     creator_handle: metadata.creatorHandle ?? fallback.creator_handle,
     thumbnail_url: metadata.thumbnailUrl ?? fallback.thumbnail_url,
     embed_url: metadata.embedUrl ?? fallback.embed_url,
+    embed_html: metadata.embedHtml ?? fallback.embed_html,
+    duration_seconds: metadata.durationSeconds ?? fallback.duration_seconds,
     hashtags: metadata.hashtags.length > 0 ? metadata.hashtags : fallback.hashtags,
     language: metadata.language ?? fallback.language,
   };
@@ -123,6 +145,8 @@ function buildMetadataFromInstagram(
     creator_handle: metadata.creatorHandle ?? fallback.creator_handle,
     thumbnail_url: metadata.thumbnailUrl ?? fallback.thumbnail_url,
     embed_url: metadata.embedUrl ?? fallback.embed_url,
+    embed_html: metadata.embedHtml ?? fallback.embed_html,
+    duration_seconds: metadata.durationSeconds ?? fallback.duration_seconds,
     hashtags: metadata.hashtags.length > 0 ? metadata.hashtags : fallback.hashtags,
     language: metadata.language ?? fallback.language,
   };
@@ -144,9 +168,24 @@ function buildMetadataFromTwitter(
     creator_handle: metadata.creatorHandle ?? fallback.creator_handle,
     thumbnail_url: metadata.thumbnailUrl ?? fallback.thumbnail_url,
     embed_url: metadata.embedUrl ?? fallback.embed_url,
+    embed_html: metadata.embedHtml ?? fallback.embed_html,
+    duration_seconds: metadata.durationSeconds ?? fallback.duration_seconds,
     hashtags: metadata.hashtags.length > 0 ? metadata.hashtags : fallback.hashtags,
     language: metadata.language ?? fallback.language,
   };
+}
+
+async function fetchProviderMetadata(video: LoadedVideo): Promise<StubMetadata> {
+  switch (video.platform) {
+    case "youtube":
+      return buildMetadataFromYouTube(video, await parseYouTube(video.source_url));
+    case "instagram":
+      return buildMetadataFromInstagram(video, await parseInstagram(video.source_url));
+    case "twitter":
+      return buildMetadataFromTwitter(video, await parseTwitter(video.source_url));
+    default:
+      return buildStubMetadata(video);
+  }
 }
 
 async function loadVideoForMetadata(client: PoolClient, videoId: string): Promise<LoadedVideo | null> {
@@ -235,14 +274,7 @@ export async function registerFetchMetadataHandler(boss: PgBoss): Promise<void> 
           [videoId],
         );
 
-        const stubMetadata =
-          video.platform === "youtube"
-            ? buildMetadataFromYouTube(video, await parseYouTube(video.source_url))
-            : video.platform === "instagram"
-              ? buildMetadataFromInstagram(video, await parseInstagram(video.source_url))
-              : video.platform === "twitter" || video.platform === "x"
-                ? buildMetadataFromTwitter(video, await parseTwitter(video.source_url))
-            : buildStubMetadata(video);
+        const stubMetadata = await fetchProviderMetadata(video);
         const searchText = buildSearchText([
           video.source_url,
           video.normalized_url,
@@ -263,12 +295,14 @@ export async function registerFetchMetadataHandler(boss: PgBoss): Promise<void> 
                 creator_handle = $5,
                 thumbnail_url = $6,
                 embed_url = $7,
-                hashtags_json = $8::jsonb,
-                language_code = $9,
+                embed_html = $8,
+                duration_seconds = $9,
+                hashtags_json = $10::jsonb,
+                language_code = $11,
                 status = 'analyzing',
                 metadata_status = 'completed',
                 analysis_status = 'queued',
-                search_text = $10,
+                search_text = $12,
                 updated_at = now()
             where id = $1
           `,
@@ -280,6 +314,8 @@ export async function registerFetchMetadataHandler(boss: PgBoss): Promise<void> 
             stubMetadata.creator_handle,
             stubMetadata.thumbnail_url,
             stubMetadata.embed_url,
+            stubMetadata.embed_html,
+            stubMetadata.duration_seconds,
             JSON.stringify(stubMetadata.hashtags),
             stubMetadata.language,
             searchText,

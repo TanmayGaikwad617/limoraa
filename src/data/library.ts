@@ -24,11 +24,13 @@ function toVideoItem(v: HydratedVideo): VideoItem {
     platform: formatPlatform(v.platform),
     status: v.analysis_status === 'completed' ? 'Ready' : v.status,
     thumbnailColor: pickColor(v.id),
+    thumbnailUrl: v.thumbnail_url ?? undefined,
     savedAgo: formatRelativeTime(v.saved_at),
     tags: v.tags.map((t) => t.tag),
     collection: v.collections[0]?.name ?? 'General',
     sourceUrl: v.source_url,
     embedUrl: v.embed_url ?? undefined,
+    embedHtml: v.embed_html ?? undefined,
     type: formatContentType(v.content_type),
   };
 }

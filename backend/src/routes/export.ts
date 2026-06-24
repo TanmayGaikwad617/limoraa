@@ -106,10 +106,8 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
     const auth = requireAuth(request);
 
     return withRlsUser(auth.user, async (client) => {
-      const [videos, collections] = await Promise.all([
-        loadAllVideos(client, auth.user.id),
-        loadAllCollections(client, auth.user.id),
-      ]);
+      const videos = await loadAllVideos(client, auth.user.id);
+      const collections = await loadAllCollections(client, auth.user.id);
 
       const token = randomUUID();
       const exportDir = join(tmpdir(), "contentcategorize-exports");

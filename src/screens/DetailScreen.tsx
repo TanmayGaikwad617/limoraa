@@ -18,7 +18,6 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
 } from 'react-native-reanimated';
-import { WebView } from 'react-native-webview';
 import { Feather } from '@expo/vector-icons';
 
 import {
@@ -32,6 +31,10 @@ import {
 } from '../api/client';
 import { VideoItem, HydratedVideo, CollectionItem } from '../types';
 import { theme } from '../theme';
+import {
+  EmbeddedVideoPlayer,
+  isEmbeddablePlatform,
+} from '../components/EmbeddedVideoPlayer';
 import {
   formatRelativeTime,
   formatPlatform,
@@ -272,13 +275,11 @@ export function DetailScreen({
     );
   }, [hydrated, item, onClose, onDelete]);
 
-  const handleWebViewError = useCallback(({ nativeEvent }: { nativeEvent: { code?: number } }) => {
-    if (nativeEvent.code === 153) {
-      setPlayerError(true);
-    }
+  const handlePlayerError = useCallback(() => {
+    setPlayerError(true);
   }, []);
 
-  const openInYouTube = useCallback(() => {
+  const openOriginal = useCallback(() => {
     const url = hydrated?.source_url ?? item?.sourceUrl;
     if (url) Linking.openURL(url);
   }, [hydrated, item]);
@@ -369,12 +370,15 @@ export function DetailScreen({
   const summary = hydrated?.summary ?? item.summary;
   const typeLabel = hydrated ? formatContentType(hydrated.content_type) : item.type;
   const embedUrl = hydrated?.embed_url ?? item.embedUrl;
+  const embedHtml = hydrated?.embed_html ?? item.embedHtml;
   const duration = hydrated?.duration_seconds ? formatDuration(hydrated.duration_seconds) : null;
 
-  const isPlayer =
-    platformLabel === 'YouTube' || platformLabel === 'TikTok' || !!embedUrl;
+  const isPlayer = isEmbeddablePlatform(hydrated?.platform ?? item.platform, sourceUrl) || !!embedUrl || !!embedHtml;
   // Vertical-first platforms render 9:16; everything else is treated as 16:9.
-  const isVertical = platformLabel === 'TikTok' || platformLabel === 'Instagram';
+  const isVertical =
+    platformLabel === 'TikTok' ||
+    platformLabel === 'Instagram' ||
+    sourceUrl.includes('/shorts/');
 
   const analysis = hydrated?.analysis as Record<string, unknown> | null;
   const topic = analysis?.topic as string | undefined;
@@ -436,24 +440,24 @@ export function DetailScreen({
           ]}
         >
           {isPlayer && !playerError ? (
-            <WebView
-              source={{ uri: embedUrl ?? sourceUrl }}
-              style={styles.webview}
-              javaScriptEnabled
-              allowsInlineMediaPlayback
-              mediaPlaybackRequiresUserAction
-              onError={handleWebViewError}
+            <EmbeddedVideoPlayer
+              platform={hydrated?.platform ?? item.platform}
+              sourceUrl={sourceUrl}
+              embedUrl={embedUrl}
+              embedHtml={embedHtml}
+              title={v.title}
+              onError={handlePlayerError}
             />
           ) : isPlayer && playerError ? (
             <View style={[styles.fillPoster, { backgroundColor: theme.colors.cardSoft }]}>
               <Feather name="eye-off" size={32} color={theme.colors.tertiary} />
-              <Text style={styles.playerErrorTitle}>Embedding disabled</Text>
+              <Text style={styles.playerErrorTitle}>Playback unavailable</Text>
               <Text style={styles.playerErrorCopy}>
-                This video cannot be embedded. Open it in the YouTube app instead.
+                This provider is blocking the embedded player for this post.
               </Text>
-              <Pressable style={styles.openInAppButton} onPress={openInYouTube}>
+              <Pressable style={styles.openInAppButton} onPress={openOriginal}>
                 <Feather name="external-link" size={16} color={theme.colors.white} />
-                <Text style={styles.openInAppButtonText}>Open in YouTube</Text>
+                <Text style={styles.openInAppButtonText}>Open original</Text>
               </Pressable>
             </View>
           ) : (
@@ -642,7 +646,7 @@ export function DetailScreen({
         </Pressable>
       </View>
 
-      <Pressable style={styles.linkButton} onPress={() => Linking.openURL(sourceUrl)}>
+      <Pressable style={styles.linkButton} onPress={openOriginal}>
         <Feather name="external-link" size={16} color={theme.colors.card} />
         <Text style={styles.linkText}>Open original on {platformLabel}</Text>
       </Pressable>

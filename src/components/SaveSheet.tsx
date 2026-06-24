@@ -134,7 +134,7 @@ export function SaveSheet({ visible, onClose, onSaved }: SaveSheetProps) {
               </View>
               <Text style={styles.title}>Save a video</Text>
               <Text style={styles.subtitle}>
-                Paste a link from YouTube, Instagram, or TikTok
+                Paste a link from YouTube, Instagram, TikTok, or X
               </Text>
             </View>
 

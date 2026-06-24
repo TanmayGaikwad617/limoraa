@@ -26,6 +26,8 @@ type TwitterApiV2Response = {
   } | null;
 };
 
+let isApiV2Unavailable = false;
+
 export function extractTweetId(url: string): string | null {
   const trimmed = url.trim();
   if (!trimmed) {
@@ -98,7 +100,7 @@ async function fetchOEmbed(originalUrl: string): Promise<TwitterOEmbedResponse |
 
 async function fetchApiV2(tweetId: string): Promise<TwitterApiV2Response | null> {
   const bearerToken = process.env.TWITTER_BEARER_TOKEN?.trim();
-  if (!bearerToken) {
+  if (!bearerToken || isApiV2Unavailable) {
     return null;
   }
 
@@ -125,6 +127,11 @@ async function fetchApiV2(tweetId: string): Promise<TwitterApiV2Response | null>
   if (!response.ok) {
     if (response.status === 429) {
       console.warn(`Twitter API v2 rate limited with status 429 for tweet ${tweetId}`);
+    } else if (response.status === 402) {
+      isApiV2Unavailable = true;
+      console.warn(
+        "Twitter API v2 unavailable with status 402; falling back to oEmbed for this process",
+      );
     } else {
       console.warn(`Twitter API v2 request failed with status ${response.status} for tweet ${tweetId}`);
     }

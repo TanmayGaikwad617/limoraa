@@ -286,6 +286,43 @@ test("HTTP 429 on API v2 returns oEmbed result without throwing", async () => {
   assert.equal(result?.embedHtml, "<blockquote>tweet</blockquote>");
 });
 
+test("HTTP 402 on API v2 falls back to oEmbed and skips later API v2 calls", async () => {
+  process.env.TWITTER_BEARER_TOKEN = "bearer-token";
+  let apiCalls = 0;
+  const mockFetch = async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+
+    if (url.hostname === "publish.twitter.com" && url.pathname === "/oembed") {
+      return new Response(JSON.stringify({
+        author_name: "OEmbed Creator",
+        author_url: "https://twitter.com/username",
+        html: "<blockquote>tweet</blockquote>",
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (url.hostname === "api.twitter.com" && url.pathname.startsWith("/2/tweets/")) {
+      apiCalls += 1;
+      return new Response("{}", { status: 402 });
+    }
+
+    return new Response("{}", { status: 404 });
+  };
+
+  const { parseTwitter } = await loadParser(mockFetch);
+
+  const [firstResult, secondResult] = await withMockedFetch(mockFetch, async () => [
+    await parseTwitter("https://twitter.com/user/status/1234567890"),
+    await parseTwitter("https://twitter.com/user/status/1234567891"),
+  ]);
+
+  assert.equal(firstResult?.creatorName, "OEmbed Creator");
+  assert.equal(secondResult?.creatorName, "OEmbed Creator");
+  assert.equal(apiCalls, 1);
+});
+
 test("oEmbed failure returns null", async () => {
   process.env.TWITTER_BEARER_TOKEN = "bearer-token";
   const { parseTwitter } = await loadParser(async (input: string | URL | Request) => {

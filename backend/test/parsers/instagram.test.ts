@@ -53,6 +53,17 @@ test("extractInstagramShortcode extracts p shortcode", async () => {
   assert.equal(extractInstagramShortcode("https://www.instagram.com/p/SHORTCODE/"), "SHORTCODE");
 });
 
+test("importing parser does not request an app token", async () => {
+  let fetchCalls = 0;
+
+  await loadParser(async () => {
+    fetchCalls += 1;
+    throw new Error("fetch should not be called on import");
+  });
+
+  assert.equal(fetchCalls, 0);
+});
+
 test("parseInstagram maps a full mock response correctly", async () => {
   const parser = await loadParser(
     mockInstagramFetch({

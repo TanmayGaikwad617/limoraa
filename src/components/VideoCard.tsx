@@ -1,5 +1,5 @@
 import React, { useCallback, useRef } from 'react';
-import { ActivityIndicator, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   FadeInDown,
   interpolate,
@@ -127,26 +127,38 @@ export function VideoCard({
           collapsable={false}
           style={[styles.thumbnail, { backgroundColor: item.thumbnailColor, minHeight: tall ? 220 : 168 }]}
         >
-          <View style={styles.platformChip}>
-            <Text style={styles.platformText}>{item.platform}</Text>
-          </View>
+          {item.thumbnailUrl ? (
+            <Image
+              source={{ uri: item.thumbnailUrl }}
+              style={styles.thumbnailImage}
+              resizeMode="cover"
+            />
+          ) : null}
 
-          {!isReady && (
-            <View style={styles.statusChip}>
-              {isProcessing && (
-                <ActivityIndicator size={10} color={theme.colors.muted} style={{ marginRight: 4 }} />
-              )}
-              <Text style={styles.statusText}>
-                {STATUS_LABELS[item.status] ?? item.status}
-              </Text>
+          <View style={styles.thumbnailOverlay}>
+            <View style={styles.platformChip}>
+              <Text style={styles.platformText}>{item.platform}</Text>
             </View>
-          )}
 
-          {isFailed && onRetry && (
-            <Pressable style={styles.retryChip} onPress={onRetry}>
-              <Text style={styles.retryText}>Retry</Text>
-            </Pressable>
-          )}
+            <View>
+              {!isReady && (
+                <View style={styles.statusChip}>
+                  {isProcessing && (
+                    <ActivityIndicator size={10} color={theme.colors.muted} style={{ marginRight: 4 }} />
+                  )}
+                  <Text style={styles.statusText}>
+                    {STATUS_LABELS[item.status] ?? item.status}
+                  </Text>
+                </View>
+              )}
+
+              {isFailed && onRetry && (
+                <Pressable style={styles.retryChip} onPress={onRetry}>
+                  <Text style={styles.retryText}>Retry</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
         </View>
 
         <View style={[styles.textBlock, isProcessing && styles.textBlockSkeleton]}>
@@ -223,6 +235,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   thumbnail: {
+    overflow: 'hidden',
+  },
+  thumbnailImage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
+  thumbnailOverlay: {
+    flex: 1,
     padding: 10,
     justifyContent: 'space-between',
   },

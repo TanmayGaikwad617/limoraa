@@ -86,38 +86,38 @@ export async function hydrateVideos(
 
   const videoIds = baseRows.map((row) => row.id);
 
-  const [tagsResult, collectionsResult, analysisResult] = await Promise.all([
-    client.query<{
-      video_id: string;
-      tag: string;
-      source: string;
-    }>(
-      `select video_id, tag, source
-       from public.video_tags
-       where video_id = any($1::uuid[])
-       order by created_at asc`,
-      [videoIds],
-    ),
-    client.query<{
-      video_id: string;
-      collection_id: string;
-      collection_name: string;
-      collection_type: string;
-    }>(
-      `select cv.video_id, c.id as collection_id, c.name as collection_name, c.type as collection_type
-       from public.collection_videos cv
-       join public.collections c on c.id = cv.collection_id
-       where cv.video_id = any($1::uuid[])
-       order by c.created_at asc`,
-      [videoIds],
-    ),
-    client.query<Record<string, unknown> & { video_id: string }>(
-      `select *
-       from public.video_analysis
-       where video_id = any($1::uuid[])`,
-      [videoIds],
-    ),
-  ]);
+  const tagsResult = await client.query<{
+    video_id: string;
+    tag: string;
+    source: string;
+  }>(
+    `select video_id, tag, source
+     from public.video_tags
+     where video_id = any($1::uuid[])
+     order by created_at asc`,
+    [videoIds],
+  );
+
+  const collectionsResult = await client.query<{
+    video_id: string;
+    collection_id: string;
+    collection_name: string;
+    collection_type: string;
+  }>(
+    `select cv.video_id, c.id as collection_id, c.name as collection_name, c.type as collection_type
+     from public.collection_videos cv
+     join public.collections c on c.id = cv.collection_id
+     where cv.video_id = any($1::uuid[])
+     order by c.created_at asc`,
+    [videoIds],
+  );
+
+  const analysisResult = await client.query<Record<string, unknown> & { video_id: string }>(
+    `select *
+     from public.video_analysis
+     where video_id = any($1::uuid[])`,
+    [videoIds],
+  );
 
   const tagsByVideoId = new Map<string, Array<{ tag: string; source: string }>>();
   for (const row of tagsResult.rows) {

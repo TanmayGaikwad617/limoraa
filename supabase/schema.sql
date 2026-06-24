@@ -14,10 +14,12 @@ end $$;
 
 do $$
 begin
-  create type public.platform_type as enum ('tiktok', 'instagram', 'youtube');
+  create type public.platform_type as enum ('tiktok', 'instagram', 'youtube', 'twitter');
 exception
   when duplicate_object then null;
 end $$;
+
+alter type public.platform_type add value if not exists 'twitter';
 
 do $$
 begin

@@ -20,6 +20,8 @@ const baseVideo = {
   id: "video_1",
   user_id: "user_1",
   platform: "youtube",
+  platform_video_id: "abc123",
+  hashtags: ["ai"],
   creator_name: "YouTube Creator",
   tags: [{ tag: "ai", source: "ai" }],
   analysis: {
@@ -425,7 +427,7 @@ test("processAnalyzeVideo removes duplicate tags before persistence", async () =
 });
 
 test("processAnalyzeVideo transitions status to ready on success", async () => {
-  let statusArgs: { summary: string; searchText: string } | null = null;
+  const statusArgs: Array<{ summary: string; searchText: string }> = [];
 
   const result = await withMockGeminiFetch(
     [
@@ -461,7 +463,7 @@ test("processAnalyzeVideo transitions status to ready on success", async () => {
         insertVideoAnalysis: async () => {},
         insertVideoTags: async () => {},
         updateVideoFinalStatus: async (_videoId, summary, searchText) => {
-          statusArgs = { summary, searchText };
+          statusArgs.push({ summary, searchText });
         },
         enqueueIndexVideo: async () => {},
       }),
@@ -472,8 +474,10 @@ test("processAnalyzeVideo transitions status to ready on success", async () => {
     status: "ready",
     analysis_status: "completed",
   });
-  assert.equal(statusArgs?.summary, "A production-ready metadata analysis test case.");
-  assert.equal(statusArgs?.searchText.includes("developers and tech learners"), true);
+  const args = statusArgs[0];
+  assert.ok(args);
+  assert.equal(args.summary, "A production-ready metadata analysis test case.");
+  assert.equal(args.searchText.includes("developers and tech learners"), true);
 });
 
 test("tag_contains match", () => {
