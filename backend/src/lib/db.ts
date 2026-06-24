@@ -10,6 +10,8 @@ function buildPoolConfig(): PoolConfig {
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
     ssl: env.DATABASE_SSL ? { rejectUnauthorized: false } : undefined,
   };
 }
@@ -17,6 +19,17 @@ function buildPoolConfig(): PoolConfig {
 export function getPool(): Pool {
   if (!pool) {
     pool = new Pool(buildPoolConfig());
+    pool.on("connect", (client) => {
+      void client.query("SET statement_timeout = '15000'").catch((error: unknown) => {
+        console.warn(
+          JSON.stringify({
+            level: "warn",
+            message: "failed to set postgres statement_timeout",
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      });
+    });
   }
 
   return pool;
@@ -31,7 +44,14 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
 }
 
 export async function withDbClient<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await getPool().connect();
+  let client: PoolClient;
+  try {
+    client = await getPool().connect();
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    client = await getPool().connect();
+  }
+
   try {
     return await fn(client);
   } finally {
@@ -55,28 +75,11 @@ export async function withTransaction<T>(
   });
 }
 
-async function setRequestClaims(
-  client: PoolClient,
-  claims: Record<string, string>,
-): Promise<void> {
-  for (const [key, value] of Object.entries(claims)) {
-    await client.query("select set_config($1, $2, true)", [key, value]);
-  }
-}
-
 export async function withRlsUser<T>(
-  user: { id: string; email?: string | null },
+  _user: { id: string; email?: string | null },
   fn: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
-  return withTransaction(async (client) => {
-    await setRequestClaims(client, {
-      "request.jwt.claim.sub": user.id,
-      "request.jwt.claim.role": "authenticated",
-      "request.jwt.claim.email": user.email ?? "",
-    });
-
-    return fn(client);
-  });
+  return withTransaction(fn);
 }
 
 export async function closeDb(): Promise<void> {

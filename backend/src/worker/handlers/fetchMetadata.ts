@@ -12,17 +12,17 @@ type FetchMetadataJob = {
   videoId: string;
 };
 
-type StubMetadata = {
-  title: string;
-  description: string;
-  creator_name: string;
-  creator_handle: string;
-  thumbnail_url: string;
+type EmptyMetadata = {
+  title: string | null;
+  description: string | null;
+  creator_name: string | null;
+  creator_handle: string | null;
+  thumbnail_url: string | null;
   embed_url: string | null;
   embed_html: string | null;
   duration_seconds: number | null;
   hashtags: string[];
-  language: string;
+  language: string | null;
 };
 
 type LoadedVideo = Pick<
@@ -50,67 +50,44 @@ function assertSupportedPlatform(platform: string): SupportedPlatform {
   throw new Error(`Unsupported platform: ${platform}`);
 }
 
-function buildStubMetadata(video: LoadedVideo): StubMetadata {
+function buildEmptyMetadata(video: LoadedVideo): EmptyMetadata {
   const platform = assertSupportedPlatform(video.platform);
   const platformVideoId = video.platform_video_id ?? video.id;
-  const handleSuffix = platformVideoId.slice(0, 8).toLowerCase();
 
-  const parsers: Record<SupportedPlatform, () => StubMetadata> = {
+  const parsers: Record<SupportedPlatform, () => Pick<EmptyMetadata, "embed_url" | "embed_html">> = {
     youtube: () => ({
-      title: `Stub YouTube title for ${platformVideoId}`,
-      description: `Stub YouTube description for ${platformVideoId}.`,
-      creator_name: "YouTube Creator",
-      creator_handle: `@youtube_${handleSuffix}`,
-      thumbnail_url: `https://placehold.co/640x360/png?text=YouTube+${encodeURIComponent(handleSuffix)}`,
       embed_url: `https://www.youtube.com/embed/${platformVideoId}`,
       embed_html: `<iframe width="560" height="315" src="https://www.youtube.com/embed/${platformVideoId}" frameborder="0" allowfullscreen></iframe>`,
-      duration_seconds: null,
-      hashtags: ["youtube", "stub", "metadata"],
-      language: "en",
     }),
     instagram: () => ({
-      title: `Stub Instagram title for ${platformVideoId}`,
-      description: `Stub Instagram description for ${platformVideoId}.`,
-      creator_name: "Instagram Creator",
-      creator_handle: `@instagram_${handleSuffix}`,
-      thumbnail_url: `https://placehold.co/640x360/png?text=Instagram+${encodeURIComponent(handleSuffix)}`,
       embed_url: `https://www.instagram.com/reel/${platformVideoId}/embed/`,
       embed_html: null,
-      duration_seconds: null,
-      hashtags: ["instagram", "stub", "metadata"],
-      language: "en",
     }),
     tiktok: () => ({
-      title: `Stub TikTok title for ${platformVideoId}`,
-      description: `Stub TikTok description for ${platformVideoId}.`,
-      creator_name: "TikTok Creator",
-      creator_handle: `@tiktok_${handleSuffix}`,
-      thumbnail_url: `https://placehold.co/640x360/png?text=TikTok+${encodeURIComponent(handleSuffix)}`,
       embed_url: `https://www.tiktok.com/embed/v2/${platformVideoId}`,
       embed_html: null,
-      duration_seconds: null,
-      hashtags: ["tiktok", "stub", "metadata"],
-      language: "en",
     }),
     twitter: () => ({
-      title: `Stub Twitter/X post for ${platformVideoId}`,
-      description: `Stub Twitter/X description for ${platformVideoId}.`,
-      creator_name: "Twitter Creator",
-      creator_handle: `@twitter_${handleSuffix}`,
-      thumbnail_url: `https://placehold.co/640x360/png?text=X+${encodeURIComponent(handleSuffix)}`,
       embed_url: `https://platform.twitter.com/embed/Tweet.html?id=${encodeURIComponent(platformVideoId)}`,
       embed_html: null,
-      duration_seconds: null,
-      hashtags: ["twitter", "x", "stub", "metadata"],
-      language: "en",
     }),
   };
 
-  return parsers[platform]();
+  return {
+    title: null,
+    description: null,
+    creator_name: null,
+    creator_handle: null,
+    thumbnail_url: null,
+    ...parsers[platform](),
+    duration_seconds: null,
+    hashtags: [],
+    language: null,
+  };
 }
 
-function buildMetadataFromYouTube(video: LoadedVideo, metadata: Awaited<ReturnType<typeof parseYouTube>>): StubMetadata {
-  const fallback = buildStubMetadata(video);
+function buildMetadataFromYouTube(video: LoadedVideo, metadata: Awaited<ReturnType<typeof parseYouTube>>): EmptyMetadata {
+  const fallback = buildEmptyMetadata(video);
   if (!metadata) {
     return fallback;
   }
@@ -132,8 +109,8 @@ function buildMetadataFromYouTube(video: LoadedVideo, metadata: Awaited<ReturnTy
 function buildMetadataFromInstagram(
   video: LoadedVideo,
   metadata: Awaited<ReturnType<typeof parseInstagram>>,
-): StubMetadata {
-  const fallback = buildStubMetadata(video);
+): EmptyMetadata {
+  const fallback = buildEmptyMetadata(video);
   if (!metadata) {
     return fallback;
   }
@@ -155,8 +132,8 @@ function buildMetadataFromInstagram(
 function buildMetadataFromTwitter(
   video: LoadedVideo,
   metadata: Awaited<ReturnType<typeof parseTwitter>>,
-): StubMetadata {
-  const fallback = buildStubMetadata(video);
+): EmptyMetadata {
+  const fallback = buildEmptyMetadata(video);
   if (!metadata) {
     return fallback;
   }
@@ -175,7 +152,7 @@ function buildMetadataFromTwitter(
   };
 }
 
-async function fetchProviderMetadata(video: LoadedVideo): Promise<StubMetadata> {
+async function fetchProviderMetadata(video: LoadedVideo): Promise<EmptyMetadata> {
   switch (video.platform) {
     case "youtube":
       return buildMetadataFromYouTube(video, await parseYouTube(video.source_url));
@@ -184,7 +161,7 @@ async function fetchProviderMetadata(video: LoadedVideo): Promise<StubMetadata> 
     case "twitter":
       return buildMetadataFromTwitter(video, await parseTwitter(video.source_url));
     default:
-      return buildStubMetadata(video);
+      return buildEmptyMetadata(video);
   }
 }
 

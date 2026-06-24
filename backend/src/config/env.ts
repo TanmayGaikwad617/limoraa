@@ -16,6 +16,14 @@ const booleanFromString = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+const optionalNonEmptyString = z.preprocess((value) => {
+  if (typeof value === "string" && value.trim() === "") {
+    return undefined;
+  }
+
+  return value;
+}, z.string().min(1).optional());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   HOST: z.string().min(1).default("0.0.0.0"),
@@ -25,6 +33,7 @@ const envSchema = z.object({
     .default("info"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   DATABASE_SSL: booleanFromString.default(false),
+  PG_BOSS_DATABASE_URL: optionalNonEmptyString,
   PG_BOSS_SCHEMA: z.string().min(1).default("pgboss"),
   SUPABASE_URL: z.string().url("SUPABASE_URL must be a valid URL"),
   SUPABASE_ANON_KEY: z.string().min(1, "SUPABASE_ANON_KEY is required"),
@@ -32,11 +41,11 @@ const envSchema = z.object({
     1,
     "SUPABASE_SERVICE_ROLE_KEY is required",
   ),
-  INSTAGRAM_APP_ID: z.string().min(1).optional(),
-  INSTAGRAM_APP_SECRET: z.string().min(1).optional(),
-  YOUTUBE_API_KEY: z.string().min(1).optional(),
-  TWITTER_BEARER_TOKEN: z.string().min(1).optional(),
-  GEMINI_API_KEY: z.string().min(1).optional(),
+  INSTAGRAM_APP_ID: optionalNonEmptyString,
+  INSTAGRAM_APP_SECRET: optionalNonEmptyString,
+  YOUTUBE_API_KEY: optionalNonEmptyString,
+  TWITTER_BEARER_TOKEN: optionalNonEmptyString,
+  GEMINI_API_KEY: optionalNonEmptyString,
   CORS_ORIGIN: z.string().min(1).default("*"),
 });
 

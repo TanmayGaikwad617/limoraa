@@ -29,12 +29,7 @@ function mockInstagramFetch(responseBody: unknown, status = 200) {
   return async (input: string | URL | Request) => {
     const url = new URL(String(input));
 
-    if (url.hostname === "graph.facebook.com" && url.pathname === "/oauth/access_token") {
-      return new Response(JSON.stringify({ access_token: "app-token" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }
+    assert.equal(url.searchParams.get("access_token"), "app-id|app-secret");
 
     return new Response(JSON.stringify(responseBody), {
       status,

@@ -26,21 +26,30 @@ function requireHttps(url: URL): void {
 
 function canonicalizeYoutube(url: URL): NormalizedVideoUrl {
   const host = url.hostname.replace(/^m\./, "").replace(/^www\./, "");
+  const segments = url.pathname.split("/").filter(Boolean);
   let videoId = "";
+  let canonicalPath: "watch" | "shorts" = "watch";
 
   if (host === "youtu.be") {
-    videoId = url.pathname.split("/").filter(Boolean)[0] ?? "";
+    videoId = segments[0] ?? "";
   } else if (url.pathname.startsWith("/shorts/")) {
-    videoId = url.pathname.split("/").filter(Boolean)[1] ?? "";
-  } else if (url.pathname === "/watch") {
+    videoId = segments[1] ?? "";
+    canonicalPath = "shorts";
+  } else if (url.pathname === "/watch" || url.pathname === "/watch/") {
     videoId = url.searchParams.get("v") ?? "";
+  } else if (url.pathname.startsWith("/live/")) {
+    videoId = segments[1] ?? "";
+  } else if (url.pathname.startsWith("/embed/") || url.pathname.startsWith("/v/")) {
+    videoId = segments[1] ?? "";
   }
 
   if (!videoId) {
     throw new AppError(400, "unsupported_url", "Unsupported YouTube URL format");
   }
 
-  const canonical = `https://www.youtube.com/shorts/${videoId}`;
+  const canonical = canonicalPath === "shorts"
+    ? `https://www.youtube.com/shorts/${videoId}`
+    : `https://www.youtube.com/watch?v=${videoId}`;
   return {
     canonical,
     platform: "youtube",
@@ -129,7 +138,7 @@ export function normalizeVideoUrl(rawUrl: string): NormalizedVideoUrl {
   }
 
   if (host === "x.com" || host === "twitter.com" || host === "mobile.twitter.com") {
-    return canonicalizeTwitter(url);
+    throw new AppError(400, "platform_unsupported", "X (Twitter) isn't supported yet");
   }
 
   throw new AppError(400, "unsupported_platform", "Unsupported platform URL");

@@ -7,6 +7,13 @@ const THUMBNAIL_PALETTE = [
   '#dc2626', '#0891b2', '#a16207', '#2563eb',
 ];
 
+const PLATFORM_TITLE_FALLBACKS: Record<string, string> = {
+  youtube: 'YouTube video',
+  instagram: 'Instagram reel',
+  tiktok: 'TikTok video',
+  twitter: 'X post',
+};
+
 function pickColor(id: string): string {
   let hash = 0;
   for (let i = 0; i < id.length; i++) {
@@ -15,16 +22,49 @@ function pickColor(id: string): string {
   return THUMBNAIL_PALETTE[Math.abs(hash) % THUMBNAIL_PALETTE.length];
 }
 
+function isPlaceholderText(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    /^stub (youtube|instagram|tiktok|twitter\/x) (title|description|post) for\b/.test(normalized) ||
+    normalized === 'metadata is limited; this appears to be general video content with unclear subject matter.' ||
+    normalized.startsWith('metadata suggests ')
+  );
+}
+
+function cleanText(value?: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || isPlaceholderText(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+function cleanThumbnailUrl(value?: string | null): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.includes('placehold.co')) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function platformFallbackTitle(platform: string): string {
+  return PLATFORM_TITLE_FALLBACKS[platform] ?? 'Saved video';
+}
+
 function toVideoItem(v: HydratedVideo): VideoItem {
+  const title = cleanText(v.title) ?? platformFallbackTitle(v.platform);
+  const summary = cleanText(v.summary) ?? cleanText(v.description) ?? '';
+  const creator = cleanText(v.creator_handle) ?? cleanText(v.creator_name) ?? 'Unknown';
+
   return {
     id: v.id,
-    title: v.title ?? 'Untitled',
-    creator: v.creator_handle ?? v.creator_name ?? 'Unknown',
-    summary: v.summary ?? v.description ?? '',
+    title,
+    creator,
+    summary,
     platform: formatPlatform(v.platform),
     status: v.analysis_status === 'completed' ? 'Ready' : v.status,
     thumbnailColor: pickColor(v.id),
-    thumbnailUrl: v.thumbnail_url ?? undefined,
+    thumbnailUrl: cleanThumbnailUrl(v.thumbnail_url),
     savedAgo: formatRelativeTime(v.saved_at),
     tags: v.tags.map((t) => t.tag),
     collection: v.collections[0]?.name ?? 'General',

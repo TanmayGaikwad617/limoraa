@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Platform, StyleSheet } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
 import { theme } from '../theme';
 
@@ -84,6 +84,10 @@ function extractYouTubeVideoId(value?: string | null): string | null {
         return url.pathname.split('/').filter(Boolean)[1] ?? null;
       }
 
+      if (url.pathname.startsWith('/live/')) {
+        return url.pathname.split('/').filter(Boolean)[1] ?? null;
+      }
+
       if (url.pathname === '/watch') {
         return url.searchParams.get('v');
       }
@@ -144,9 +148,11 @@ function buildEmbedUrl(provider: EmbedProvider, sourceUrl: string, embedUrl?: st
   if (safeEmbedUrl) {
     if (provider === 'youtube') {
       const url = new URL(safeEmbedUrl);
+      url.hostname = 'www.youtube-nocookie.com';
       url.searchParams.set('playsinline', '1');
       url.searchParams.set('rel', '0');
       url.searchParams.set('modestbranding', '1');
+      url.searchParams.set('enablejsapi', '1');
       return url.toString();
     }
 
@@ -156,7 +162,7 @@ function buildEmbedUrl(provider: EmbedProvider, sourceUrl: string, embedUrl?: st
   if (provider === 'youtube') {
     const videoId = extractYouTubeVideoId(sourceUrl);
     return videoId
-      ? `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?playsinline=1&rel=0&modestbranding=1`
+      ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?playsinline=1&rel=0&modestbranding=1&enablejsapi=1`
       : null;
   }
 
@@ -187,7 +193,7 @@ function buildProviderBody(
   embedHtml?: string | null,
   title?: string | null,
 ): string | null {
-  if (embedHtml?.trim()) {
+  if (provider !== 'youtube' && embedHtml?.trim()) {
     return embedHtml;
   }
 
@@ -205,7 +211,9 @@ function buildProviderBody(
   const allow =
     'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
 
-  return `<iframe src="${safeSrc}" title="${safeTitle}" allow="${allow}" allowfullscreen></iframe>`;
+  const iframeId = provider === 'youtube' ? ' id="youtube-player"' : '';
+
+  return `<iframe${iframeId} src="${safeSrc}" title="${safeTitle}" allow="${allow}" allowfullscreen></iframe>`;
 }
 
 function buildHtml(provider: EmbedProvider, body: string): string {
@@ -220,6 +228,47 @@ function buildHtml(provider: EmbedProvider, body: string): string {
       ? '<script async src="https://www.tiktok.com/embed.js"></script>'
       : '',
   ].join('\n');
+  const playerErrorScript = provider === 'youtube'
+    ? `
+    <script>
+      (function () {
+        var hasReported = false;
+        function reportPlayerError(code) {
+          if (hasReported) return;
+          hasReported = true;
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'player_error',
+              provider: 'youtube',
+              code: code == null ? null : code
+            }));
+          }
+        }
+        window.onYouTubeIframeAPIReady = function () {
+          try {
+            new YT.Player('youtube-player', {
+              events: {
+                onError: function (event) {
+                  reportPlayerError(event && event.data);
+                }
+              }
+            });
+          } catch (error) {}
+        };
+        window.addEventListener('message', function (event) {
+          try {
+            var data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+            if (data && data.event === 'onError') {
+              reportPlayerError(data.info);
+            }
+          } catch (error) {}
+        });
+        var tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+      })();
+    </script>`
+    : '';
 
   return `<!doctype html>
 <html>
@@ -282,6 +331,7 @@ function buildHtml(provider: EmbedProvider, body: string): string {
       ${body}
     </main>
     ${scripts}
+    ${playerErrorScript}
     <script>
       window.addEventListener('load', function () {
         setTimeout(function () {
@@ -328,6 +378,17 @@ export function EmbeddedVideoPlayer({
 
   if (!source) return null;
 
+  const handleMessage = (event: WebViewMessageEvent) => {
+    try {
+      const payload = JSON.parse(event.nativeEvent.data) as { type?: string };
+      if (payload.type === 'player_error') {
+        onError?.();
+      }
+    } catch {
+      // Ignore provider scripts that post non-JSON messages.
+    }
+  };
+
   return (
     <WebView
       source={source}
@@ -346,6 +407,7 @@ export function EmbeddedVideoPlayer({
       startInLoadingState
       androidLayerType="hardware"
       onError={onError}
+      onMessage={handleMessage}
     />
   );
 }

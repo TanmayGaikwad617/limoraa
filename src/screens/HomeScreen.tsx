@@ -36,6 +36,9 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 const PAGE_SIZE = 50;
 const quickFilters = ['All', 'TikTok', 'Instagram', 'YouTube', 'Recipes', 'Workouts', 'DIY', 'Education'];
+const skeletonCards = [0, 1, 2, 3, 4, 5];
+
+let cachedVideos: VideoItem[] | null = null;
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -54,6 +57,47 @@ function getFirstName(user: { user_metadata?: Record<string, unknown>; email?: s
   return null;
 }
 
+function SkeletonBlock({ style }: { style?: object }) {
+  return <View style={[styles.skeletonBlock, style]} />;
+}
+
+function SkeletonVideoCard({ tall = false }: { tall?: boolean }) {
+  return (
+    <View style={styles.skeletonCard}>
+      <SkeletonBlock style={[styles.skeletonThumbnail, { minHeight: tall ? 220 : 168 }]} />
+      <View style={styles.skeletonTextBlock}>
+        <SkeletonBlock style={styles.skeletonTitleLine} />
+        <SkeletonBlock style={styles.skeletonMetaLine} />
+        <SkeletonBlock style={styles.skeletonCaptionLine} />
+        <View style={styles.skeletonFooter}>
+          <SkeletonBlock style={styles.skeletonFooterLine} />
+          <SkeletonBlock style={styles.skeletonFooterLineShort} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function LoadingMasonrySkeleton() {
+  const left = skeletonCards.filter((_, index) => index % 2 === 0);
+  const right = skeletonCards.filter((_, index) => index % 2 === 1);
+
+  return (
+    <View style={styles.gridSkeleton}>
+      <View style={styles.skeletonColumn}>
+        {left.map((item, index) => (
+          <SkeletonVideoCard key={item} tall={index % 2 === 0} />
+        ))}
+      </View>
+      <View style={styles.skeletonColumn}>
+        {right.map((item, index) => (
+          <SkeletonVideoCard key={item} tall={index % 2 !== 0} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export function HomeScreen({
   onOpen,
   fabHidden,
@@ -62,13 +106,13 @@ export function HomeScreen({
   fabHidden?: SharedValue<number>;
 }) {
   const { user } = useAuth();
-  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [videos, setVideos] = useState<VideoItem[]>(() => cachedVideos ?? []);
   const [collectionCount, setCollectionCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => cachedVideos === null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(() => cachedVideos?.length ?? 0);
+  const [hasMore, setHasMore] = useState(() => !cachedVideos || cachedVideos.length >= PAGE_SIZE);
   const [error, setError] = useState<string | null>(null);
   const [showSaveSheet, setShowSaveSheet] = useState(false);
   const [toast, setToast] = useState<{
@@ -79,6 +123,16 @@ export function HomeScreen({
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videosRef = useRef(videos);
   videosRef.current = videos;
+
+  const updateVideos = useCallback((next: VideoItem[] | ((current: VideoItem[]) => VideoItem[])) => {
+    setVideos((current) => {
+      const resolved = typeof next === 'function'
+        ? (next as (current: VideoItem[]) => VideoItem[])(current)
+        : next;
+      cachedVideos = resolved;
+      return resolved;
+    });
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -113,7 +167,7 @@ export function HomeScreen({
       ),
     );
 
-    setVideos((prev) => {
+    updateVideos((prev) => {
       let changed = false;
       const next = prev.map((v) => {
         const u = updates.find((x) => x.id === v.id);
@@ -125,7 +179,7 @@ export function HomeScreen({
       });
       return changed ? next : prev;
     });
-  }, []);
+  }, [updateVideos]);
 
   useEffect(() => {
     const processingStatuses = ['queued', 'fetching_metadata', 'analyzing'];
@@ -151,8 +205,8 @@ export function HomeScreen({
   const handleSaved = useCallback(
     (result: { is_new: boolean; video: VideoItem | null }) => {
       if (result.is_new && result.video) {
-        setVideos((prev) => [result.video!, ...prev]);
-        setToast({ message: 'Saved — processing', type: 'success' });
+        updateVideos((prev) => [result.video!, ...prev]);
+        setToast({ message: 'Saved - processing', type: 'success' });
       } else if (!result.is_new && result.video) {
         setToast({ message: 'Already in your library', type: 'info' });
         onOpen(result.video);
@@ -160,7 +214,7 @@ export function HomeScreen({
         setToast({ message: 'Something went wrong, try again', type: 'info' });
       }
     },
-    [onOpen],
+    [onOpen, updateVideos],
   );
 
   const handleRetry = useCallback(() => {
@@ -171,15 +225,15 @@ export function HomeScreen({
   }, []);
 
   const handleSwipeDelete = useCallback(async (item: VideoItem) => {
-    setVideos((prev) => prev.filter((v) => v.id !== item.id));
+    updateVideos((prev) => prev.filter((v) => v.id !== item.id));
     setToast({ message: 'Deleted', type: 'success' });
     try {
       await deleteVideo(item.id);
     } catch {
-      setVideos((prev) => [item, ...prev]);
+      updateVideos((prev) => [item, ...prev]);
       setToast({ message: 'Failed to delete, restored', type: 'info' });
     }
-  }, []);
+  }, [updateVideos]);
 
   const handleSwipeMove = useCallback((_item: VideoItem) => {
     setToast({ message: 'Open the video to move it to a collection', type: 'info' });
@@ -190,10 +244,10 @@ export function HomeScreen({
     try {
       const items = await fetchVideos({ limit: PAGE_SIZE, offset: currentOffset });
       if (reset) {
-        setVideos(items);
+        updateVideos(items);
         setOffset(PAGE_SIZE);
       } else {
-        setVideos((prev) => [...prev, ...items]);
+        updateVideos((prev) => [...prev, ...items]);
         setOffset((prev) => prev + PAGE_SIZE);
       }
       setHasMore(items.length === PAGE_SIZE);
@@ -201,17 +255,20 @@ export function HomeScreen({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load videos');
     }
-  }, [offset]);
+  }, [offset, updateVideos]);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    if (!cachedVideos) {
+      setLoading(true);
+    }
     fetchVideos({ limit: PAGE_SIZE, offset: 0 })
       .then((items) => {
         if (cancelled) return;
-        setVideos(items);
+        updateVideos(items);
         setOffset(PAGE_SIZE);
         setHasMore(items.length === PAGE_SIZE);
+        setError(null);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -221,7 +278,7 @@ export function HomeScreen({
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [updateVideos]);
 
   useEffect(() => {
     let cancelled = false;
@@ -239,7 +296,7 @@ export function HomeScreen({
     setRefreshing(true);
     try {
       const items = await fetchVideos({ limit: PAGE_SIZE, offset: 0 });
-      setVideos(items);
+      updateVideos(items);
       setOffset(PAGE_SIZE);
       setHasMore(items.length === PAGE_SIZE);
       setError(null);
@@ -248,7 +305,7 @@ export function HomeScreen({
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [updateVideos]);
 
   const onScrollEnd = useCallback(() => {
     if (!hasMore || loadingMore) return;
@@ -280,14 +337,6 @@ export function HomeScreen({
       }
     },
   }, [onScrollEnd, fabHidden]);
-
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={theme.colors.text} />
-      </View>
-    );
-  }
 
   return (
     <Animated.ScrollView
@@ -409,7 +458,9 @@ export function HomeScreen({
         <Text style={styles.sectionAction}>Thumbnail first</Text>
       </View>
 
-      {videos.length === 0 && !error ? (
+      {loading && videos.length === 0 ? (
+        <LoadingMasonrySkeleton />
+      ) : videos.length === 0 && !error ? (
         <View style={styles.emptyState}>
           <Feather name="book-open" size={32} color={theme.colors.muted} />
           <Text style={styles.emptyTitle}>Your library is empty</Text>
@@ -469,6 +520,65 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontSize: 13,
     fontWeight: '600',
+  },
+  gridSkeleton: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  skeletonColumn: {
+    flex: 1,
+    gap: 12,
+  },
+  skeletonCard: {
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.card,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    overflow: 'hidden',
+  },
+  skeletonBlock: {
+    backgroundColor: theme.colors.skeleton,
+  },
+  skeletonThumbnail: {
+    width: '100%',
+  },
+  skeletonTextBlock: {
+    padding: 12,
+    gap: 8,
+  },
+  skeletonTitleLine: {
+    height: 18,
+    width: '86%',
+    borderRadius: theme.radius.sm,
+  },
+  skeletonMetaLine: {
+    height: 12,
+    width: '52%',
+    borderRadius: theme.radius.sm,
+  },
+  skeletonCaptionLine: {
+    height: 34,
+    width: '100%',
+    borderRadius: theme.radius.sm,
+  },
+  skeletonFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 4,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  skeletonFooterLine: {
+    height: 10,
+    width: 48,
+    borderRadius: theme.radius.sm,
+  },
+  skeletonFooterLineShort: {
+    height: 10,
+    width: 36,
+    borderRadius: theme.radius.sm,
   },
   content: {
     padding: 18,

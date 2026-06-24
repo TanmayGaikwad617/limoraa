@@ -9,7 +9,7 @@
     "worker": "tsx watch src/worker.ts",
     "worker:start": "node dist/worker.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/auth.test.ts"
+    "test": "node --import tsx --test test/*.test.ts test/parsers/*.test.ts"
   },
   "dependencies": {
     "@fastify/cors": "*",

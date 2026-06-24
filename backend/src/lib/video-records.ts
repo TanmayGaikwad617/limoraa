@@ -113,7 +113,17 @@ export async function hydrateVideos(
   );
 
   const analysisResult = await client.query<Record<string, unknown> & { video_id: string }>(
-    `select *
+    `select
+       video_id,
+       topic,
+       format,
+       intent,
+       audience,
+       vertical_type,
+       quality_score,
+       tags_json,
+       vertical_fields_json,
+       analysis_version
      from public.video_analysis
      where video_id = any($1::uuid[])`,
     [videoIds],

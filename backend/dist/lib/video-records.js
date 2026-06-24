@@ -17,20 +17,28 @@ export async function hydrateVideos(client, baseRows) {
         return [];
     }
     const videoIds = baseRows.map((row) => row.id);
-    const [tagsResult, collectionsResult, analysisResult] = await Promise.all([
-        client.query(`select video_id, tag, source
-       from public.video_tags
-       where video_id = any($1::uuid[])
-       order by created_at asc`, [videoIds]),
-        client.query(`select cv.video_id, c.id as collection_id, c.name as collection_name, c.type as collection_type
-       from public.collection_videos cv
-       join public.collections c on c.id = cv.collection_id
-       where cv.video_id = any($1::uuid[])
-       order by c.created_at asc`, [videoIds]),
-        client.query(`select *
-       from public.video_analysis
-       where video_id = any($1::uuid[])`, [videoIds]),
-    ]);
+    const tagsResult = await client.query(`select video_id, tag, source
+     from public.video_tags
+     where video_id = any($1::uuid[])
+     order by created_at asc`, [videoIds]);
+    const collectionsResult = await client.query(`select cv.video_id, c.id as collection_id, c.name as collection_name, c.type as collection_type
+     from public.collection_videos cv
+     join public.collections c on c.id = cv.collection_id
+     where cv.video_id = any($1::uuid[])
+     order by c.created_at asc`, [videoIds]);
+    const analysisResult = await client.query(`select
+       video_id,
+       topic,
+       format,
+       intent,
+       audience,
+       vertical_type,
+       quality_score,
+       tags_json,
+       vertical_fields_json,
+       analysis_version
+     from public.video_analysis
+     where video_id = any($1::uuid[])`, [videoIds]);
     const tagsByVideoId = new Map();
     for (const row of tagsResult.rows) {
         const existing = tagsByVideoId.get(row.video_id) ?? [];

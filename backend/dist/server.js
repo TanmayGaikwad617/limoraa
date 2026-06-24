@@ -3,6 +3,7 @@ import { env } from "./config/env.js";
 import { buildApp } from "./app.js";
 import { closeDb } from "./lib/db.js";
 import { startBoss, stopBoss } from "./lib/pgboss.js";
+import { ensureWorkerQueues } from "./worker/queues.js";
 const app = buildApp();
 async function shutdown(signal) {
     app.log.info({ signal }, "shutting down backend");
@@ -18,7 +19,13 @@ async function main() {
         });
     }
     try {
-        await startBoss();
+        const boss = await startBoss(app.log).catch((error) => {
+            app.log.error({ err: error }, "pg-boss failed to start; continuing without queue");
+            return null;
+        });
+        if (boss) {
+            await ensureWorkerQueues(boss);
+        }
         await app.listen({
             port: env.PORT,
             host: env.HOST,

@@ -1,6 +1,7 @@
 import { HydratedVideo, CollectionItem, CollectionDetail, VideoStatusResponse } from '../types';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
+const API_TIMEOUT_MS = 20_000;
 
 let authToken: string | null = null;
 
@@ -26,10 +27,37 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-  });
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, API_TIMEOUT_MS);
+  const externalSignal = options?.signal;
+  const abortFromExternalSignal = () => controller.abort();
+
+  if (externalSignal?.aborted) {
+    controller.abort();
+  } else {
+    externalSignal?.addEventListener('abort', abortFromExternalSignal);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (timedOut) {
+      throw new Error('Request timed out. Please try again.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    externalSignal?.removeEventListener('abort', abortFromExternalSignal);
+  }
 
   if (response.status === 401) {
     authToken = null;
@@ -38,7 +66,16 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => '');
-    throw new Error(`API error ${response.status}: ${errorBody || response.statusText}`);
+    let message = errorBody || response.statusText;
+    try {
+      const parsed = JSON.parse(errorBody) as { error?: { message?: unknown } };
+      if (typeof parsed.error?.message === 'string' && parsed.error.message.trim()) {
+        message = parsed.error.message.trim();
+      }
+    } catch {
+      // Keep the raw response text when the server did not return JSON.
+    }
+    throw new Error(`API error ${response.status}: ${message}`);
   }
 
   return response.json() as Promise<T>;

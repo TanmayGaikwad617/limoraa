@@ -677,17 +677,13 @@ function sanitizeTags(tags: unknown, metadata: VideoMetadataInput): string[] {
 }
 
 function buildSummary(metadata: VideoMetadataInput, topic: VideoTopic): string {
+  void topic;
   const primary = [metadata.title, metadata.description, metadata.caption].find((value) => value.length > 0) ?? "";
   if (!primary) {
-    return "Metadata is limited; this appears to be general video content with unclear subject matter.";
+    return "";
   }
 
-  const summary = trimText(primary, 180);
-  if (summary.length <= 200 && summary.toLowerCase() !== metadata.title.toLowerCase()) {
-    return summary;
-  }
-
-  return trimText(`Metadata suggests ${topic.toLowerCase()} content about ${summary.toLowerCase()}.`, 200);
+  return trimText(primary, 200);
 }
 
 function clampNumber(value: unknown, minimum: number, maximum: number, fallback: number): number {

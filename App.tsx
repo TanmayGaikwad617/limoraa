@@ -1,8 +1,9 @@
 import 'react-native-gesture-handler';
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, StyleSheet, View, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppShell } from './src/AppShell';
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
@@ -35,12 +36,14 @@ function AppContent() {
 export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
-      <AuthProvider>
-        <SafeAreaView style={styles.safeArea}>
-          <StatusBar style="dark" />
-          <AppContent />
-        </SafeAreaView>
-      </AuthProvider>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <SafeAreaView style={styles.safeArea}>
+            <StatusBar style="dark" />
+            <AppContent />
+          </SafeAreaView>
+        </AuthProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

@@ -132,6 +132,31 @@ function asArray(v: unknown): string[] {
   return [];
 }
 
+function isPlaceholderText(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    /^stub (youtube|instagram|tiktok|twitter\/x) (title|description|post) for\b/.test(normalized) ||
+    normalized === 'metadata is limited; this appears to be general video content with unclear subject matter.' ||
+    normalized.startsWith('metadata suggests ')
+  );
+}
+
+function cleanText(value?: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || isPlaceholderText(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+function cleanHashtags(tags?: string[] | null): string[] | null {
+  const cleaned = (tags ?? [])
+    .map((tag) => tag.trim())
+    .filter((tag) => tag && !['stub', 'metadata'].includes(tag.toLowerCase()));
+
+  return cleaned.length > 0 ? cleaned : null;
+}
+
 export function DetailScreen({
   item,
   onClose,
@@ -363,17 +388,18 @@ export function DetailScreen({
 
   const sourceUrl = hydrated?.source_url ?? item.sourceUrl;
 
-  const v = hydrated ?? item;
-  const creator = hydrated?.creator_handle ?? hydrated?.creator_name ?? item.creator;
+  const title = cleanText(hydrated?.title) ?? item.title;
+  const creator = cleanText(hydrated?.creator_handle) ?? cleanText(hydrated?.creator_name) ?? item.creator;
   const platformLabel = hydrated ? formatPlatform(hydrated.platform) : item.platform;
   const savedAgo = hydrated ? formatRelativeTime(hydrated.saved_at) : item.savedAgo;
-  const summary = hydrated?.summary ?? item.summary;
+  const summary = cleanText(hydrated?.summary) ?? item.summary;
   const typeLabel = hydrated ? formatContentType(hydrated.content_type) : item.type;
   const embedUrl = hydrated?.embed_url ?? item.embedUrl;
   const embedHtml = hydrated?.embed_html ?? item.embedHtml;
   const duration = hydrated?.duration_seconds ? formatDuration(hydrated.duration_seconds) : null;
 
   const isPlayer = isEmbeddablePlatform(hydrated?.platform ?? item.platform, sourceUrl) || !!embedUrl || !!embedHtml;
+  const showYouTubeLink = platformLabel === 'YouTube';
   // Vertical-first platforms render 9:16; everything else is treated as 16:9.
   const isVertical =
     platformLabel === 'TikTok' ||
@@ -390,9 +416,9 @@ export function DetailScreen({
   const verticalFields = analysis?.vertical_fields_json as Record<string, unknown> | undefined;
   const analysisTags = asArray(analysis?.tags_json);
 
-  const caption = hydrated?.caption;
-  const description = hydrated?.description;
-  const hashtags = hydrated?.hashtags?.length ? hydrated.hashtags : null;
+  const caption = cleanText(hydrated?.caption);
+  const description = cleanText(hydrated?.description);
+  const hashtags = cleanHashtags(hydrated?.hashtags);
 
   return (
     <Animated.ScrollView
@@ -411,7 +437,7 @@ export function DetailScreen({
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.eyebrow}>{typeLabel}</Text>
-              <Text style={styles.title}>{v.title}</Text>
+              <Text style={styles.title}>{title}</Text>
               <Text style={styles.creator}>{creator}</Text>
             </View>
             <View style={styles.badge}>
@@ -445,7 +471,7 @@ export function DetailScreen({
               sourceUrl={sourceUrl}
               embedUrl={embedUrl}
               embedHtml={embedHtml}
-              title={v.title}
+              title={title}
               onError={handlePlayerError}
             />
           ) : isPlayer && playerError ? (
@@ -466,6 +492,13 @@ export function DetailScreen({
             </View>
           )}
         </View>
+
+        {showYouTubeLink ? (
+          <Pressable style={styles.youtubePill} onPress={openOriginal}>
+            <Feather name="external-link" size={14} color={theme.colors.accent} />
+            <Text style={styles.youtubePillText}>Open in YouTube</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {summary ? (
@@ -842,6 +875,24 @@ const styles = StyleSheet.create({
     minHeight: 360,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  youtubePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: 8,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.cardSoft,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    marginTop: 12,
+  },
+  youtubePillText: {
+    color: theme.colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
   },
   card: {
     borderRadius: theme.radius.lg,

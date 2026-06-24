@@ -180,7 +180,7 @@ export async function loadVideos(
     searchParamIndex = index;
     clauses.push(
       `(
-        to_tsvector('english', coalesce(v.search_text, '')) @@ websearch_to_tsquery('english', $${searchParamIndex})
+        to_tsvector('english', v.search_text) @@ websearch_to_tsquery('english', $${searchParamIndex})
         or lower(coalesce(v.title, '')) like lower(concat('%', $${searchParamIndex}, '%'))
         or lower(coalesce(v.creator_name, '')) like lower(concat('%', $${searchParamIndex}, '%'))
         or lower(coalesce(v.creator_handle, '')) like lower(concat('%', $${searchParamIndex}, '%'))
@@ -193,7 +193,7 @@ export async function loadVideos(
   values.push(query.limit, query.offset);
 
   const orderClause = query.q && searchParamIndex
-    ? `order by ts_rank(to_tsvector('english', coalesce(v.search_text, '')), websearch_to_tsquery('english', $${searchParamIndex})) desc, v.saved_at desc limit $${index} offset $${index + 1}`
+    ? `order by ts_rank(to_tsvector('english', v.search_text), websearch_to_tsquery('english', $${searchParamIndex})) desc, v.saved_at desc limit $${index} offset $${index + 1}`
     : `order by v.saved_at desc limit $${index} offset $${index + 1}`;
 
   const sql = buildVideoSelect(

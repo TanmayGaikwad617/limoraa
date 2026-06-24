@@ -1,6 +1,6 @@
 import { AppError } from "../lib/errors.js";
 import { verifySupabaseJwt } from "../lib/supabase.js";
-async function authenticate(request) {
+export async function authenticate(request) {
     const authorization = request.headers.authorization;
     const bearerPrefix = "Bearer ";
     if (!authorization?.startsWith(bearerPrefix)) {

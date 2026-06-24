@@ -164,7 +164,7 @@ export function VideoCard({
         <View style={[styles.textBlock, isProcessing && styles.textBlockSkeleton]}>
           <Text style={styles.title}>{item.title}</Text>
           <Text style={styles.meta}>{item.creator}</Text>
-          <Text style={styles.caption}>{item.summary}</Text>
+          {item.summary ? <Text style={styles.caption}>{item.summary}</Text> : null}
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>{item.type}</Text>

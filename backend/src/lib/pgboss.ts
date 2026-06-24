@@ -19,8 +19,10 @@ export type BossConnectionInfo = {
 };
 
 function getBossConnectionInfo(): BossConnectionInfo {
+  const connectionString = env.PG_BOSS_DATABASE_URL ?? env.DATABASE_URL;
+
   try {
-    const url = new URL(env.DATABASE_URL);
+    const url = new URL(connectionString);
     const host = url.hostname || null;
     const port = url.port || null;
     const type = host?.endsWith(".pooler.supabase.com")
@@ -51,7 +53,7 @@ function getBossConnectionInfo(): BossConnectionInfo {
 
 export function buildBossConfig(): ConstructorOptions {
   return {
-    connectionString: env.DATABASE_URL,
+    connectionString: env.PG_BOSS_DATABASE_URL ?? env.DATABASE_URL,
     schema: env.PG_BOSS_SCHEMA,
     ssl: env.DATABASE_SSL ? { rejectUnauthorized: false } : undefined,
     application_name: "contentcategorize-backend",

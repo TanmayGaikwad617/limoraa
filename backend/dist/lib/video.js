@@ -12,20 +12,31 @@ function requireHttps(url) {
 }
 function canonicalizeYoutube(url) {
     const host = url.hostname.replace(/^m\./, "").replace(/^www\./, "");
+    const segments = url.pathname.split("/").filter(Boolean);
     let videoId = "";
+    let canonicalPath = "watch";
     if (host === "youtu.be") {
-        videoId = url.pathname.split("/").filter(Boolean)[0] ?? "";
+        videoId = segments[0] ?? "";
     }
     else if (url.pathname.startsWith("/shorts/")) {
-        videoId = url.pathname.split("/").filter(Boolean)[1] ?? "";
+        videoId = segments[1] ?? "";
+        canonicalPath = "shorts";
     }
-    else if (url.pathname === "/watch") {
+    else if (url.pathname === "/watch" || url.pathname === "/watch/") {
         videoId = url.searchParams.get("v") ?? "";
+    }
+    else if (url.pathname.startsWith("/live/")) {
+        videoId = segments[1] ?? "";
+    }
+    else if (url.pathname.startsWith("/embed/") || url.pathname.startsWith("/v/")) {
+        videoId = segments[1] ?? "";
     }
     if (!videoId) {
         throw new AppError(400, "unsupported_url", "Unsupported YouTube URL format");
     }
-    const canonical = `https://www.youtube.com/shorts/${videoId}`;
+    const canonical = canonicalPath === "shorts"
+        ? `https://www.youtube.com/shorts/${videoId}`
+        : `https://www.youtube.com/watch?v=${videoId}`;
     return {
         canonical,
         platform: "youtube",
@@ -62,6 +73,21 @@ function canonicalizeTiktok(url) {
         platformVideoId: videoId,
     };
 }
+function canonicalizeTwitter(url) {
+    const segments = url.pathname.split("/").filter(Boolean);
+    const statusIndex = segments.indexOf("status");
+    const videoId = statusIndex >= 0 ? segments[statusIndex + 1] ?? "" : "";
+    if (!videoId) {
+        throw new AppError(400, "unsupported_url", "Unsupported Twitter/X URL format");
+    }
+    const handle = segments[0] && segments[0] !== "i" ? segments[0] : "i";
+    const canonical = `https://x.com/${handle}/status/${videoId}`;
+    return {
+        canonical,
+        platform: "twitter",
+        platformVideoId: videoId,
+    };
+}
 export function normalizeVideoUrl(rawUrl) {
     let url;
     try {
@@ -81,6 +107,9 @@ export function normalizeVideoUrl(rawUrl) {
     }
     if (host.endsWith("tiktok.com")) {
         return canonicalizeTiktok(url);
+    }
+    if (host === "x.com" || host === "twitter.com" || host === "mobile.twitter.com") {
+        throw new AppError(400, "platform_unsupported", "X (Twitter) isn't supported yet");
     }
     throw new AppError(400, "unsupported_platform", "Unsupported platform URL");
 }

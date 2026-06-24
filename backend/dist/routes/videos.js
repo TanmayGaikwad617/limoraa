@@ -14,7 +14,7 @@ const BulkSaveSchema = z.object({
 export const PaginationSchema = z.object({
     limit: z.coerce.number().int().min(1).max(100).default(25),
     offset: z.coerce.number().int().min(0).default(0),
-    platform: z.enum(["tiktok", "instagram", "youtube"]).optional(),
+    platform: z.enum(["tiktok", "instagram", "youtube", "twitter"]).optional(),
     content_type: z
         .enum([
         "recipe",
@@ -147,7 +147,7 @@ export async function loadVideos(client, userId, query) {
     if (query.q) {
         searchParamIndex = index;
         clauses.push(`(
-        to_tsvector('english', coalesce(v.search_text, '')) @@ websearch_to_tsquery('english', $${searchParamIndex})
+        to_tsvector('english', v.search_text) @@ websearch_to_tsquery('english', $${searchParamIndex})
         or lower(coalesce(v.title, '')) like lower(concat('%', $${searchParamIndex}, '%'))
         or lower(coalesce(v.creator_name, '')) like lower(concat('%', $${searchParamIndex}, '%'))
         or lower(coalesce(v.creator_handle, '')) like lower(concat('%', $${searchParamIndex}, '%'))
@@ -157,7 +157,7 @@ export async function loadVideos(client, userId, query) {
     }
     values.push(query.limit, query.offset);
     const orderClause = query.q && searchParamIndex
-        ? `order by ts_rank(to_tsvector('english', coalesce(v.search_text, '')), websearch_to_tsquery('english', $${searchParamIndex})) desc, v.saved_at desc limit $${index} offset $${index + 1}`
+        ? `order by ts_rank(to_tsvector('english', v.search_text), websearch_to_tsquery('english', $${searchParamIndex})) desc, v.saved_at desc limit $${index} offset $${index + 1}`
         : `order by v.saved_at desc limit $${index} offset $${index + 1}`;
     const sql = buildVideoSelect(`where ${clauses.join(" and ")}`, orderClause);
     const result = await client.query(sql, values);

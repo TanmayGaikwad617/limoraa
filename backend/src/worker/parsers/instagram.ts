@@ -49,35 +49,7 @@ async function requestAppToken(): Promise<string | null> {
     return null;
   }
 
-  const endpoint = new URL("https://graph.facebook.com/oauth/access_token");
-  endpoint.searchParams.set("client_id", appId);
-  endpoint.searchParams.set("client_secret", appSecret);
-  endpoint.searchParams.set("grant_type", "client_credentials");
-
-  let response: Response;
-  try {
-    response = await fetch(endpoint);
-  } catch (error) {
-    console.warn(
-      `Failed to fetch Instagram app token: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    return null;
-  }
-
-  if (!response.ok) {
-    console.warn(`Failed to fetch Instagram app token with status ${response.status}`);
-    return null;
-  }
-
-  try {
-    const payload = (await response.json()) as { access_token?: string | null };
-    return payload.access_token?.trim() || null;
-  } catch (error) {
-    console.warn(
-      `Failed to parse Instagram app token response: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    return null;
-  }
+  return `${appId}|${appSecret}`;
 }
 
 export function getAppToken(): Promise<string | null> {

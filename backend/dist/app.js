@@ -2,7 +2,7 @@ import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
 import fastify from "fastify";
 import { env } from "./config/env.js";
-import { authPlugin } from "./middleware/auth.js";
+import { authenticate } from "./middleware/auth.js";
 import { isAppError } from "./lib/errors.js";
 import { routes } from "./routes/index.js";
 function parseCorsOrigins(value) {
@@ -27,7 +27,8 @@ export function buildApp() {
         credentials: true,
     });
     app.register(sensible);
-    app.register(authPlugin);
+    app.decorateRequest("auth", null);
+    app.decorate("authenticate", authenticate);
     app.setErrorHandler((error, request, reply) => {
         request.log.error({ err: error }, "request failed");
         if (isAppError(error)) {

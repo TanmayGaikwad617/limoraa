@@ -34,6 +34,14 @@ test("extractYouTubeVideoId extracts ids from shorts URLs", () => {
   assert.equal(extractYouTubeVideoId("https://www.youtube.com/shorts/VIDEO_ID"), "VIDEO_ID");
 });
 
+test("extractYouTubeVideoId extracts ids from live URLs", () => {
+  assert.equal(extractYouTubeVideoId("https://www.youtube.com/live/VIDEO_ID"), "VIDEO_ID");
+});
+
+test("extractYouTubeVideoId extracts ids from embed URLs", () => {
+  assert.equal(extractYouTubeVideoId("https://www.youtube.com/embed/VIDEO_ID"), "VIDEO_ID");
+});
+
 test("extractYouTubeVideoId passes through raw video ids", () => {
   assert.equal(extractYouTubeVideoId("VIDEO_ID"), "VIDEO_ID");
 });

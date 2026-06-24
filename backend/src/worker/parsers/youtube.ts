@@ -47,6 +47,16 @@ export function extractYouTubeVideoId(input: string): string | null {
         const videoId = url.pathname.split("/").filter(Boolean)[1] ?? "";
         return videoId || null;
       }
+
+      if (url.pathname.startsWith("/live/")) {
+        const videoId = url.pathname.split("/").filter(Boolean)[1] ?? "";
+        return videoId || null;
+      }
+
+      if (url.pathname.startsWith("/embed/") || url.pathname.startsWith("/v/")) {
+        const videoId = url.pathname.split("/").filter(Boolean)[1] ?? "";
+        return videoId || null;
+      }
     }
 
     return null;
