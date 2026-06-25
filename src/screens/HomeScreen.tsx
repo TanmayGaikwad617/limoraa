@@ -21,12 +21,10 @@ import Animated, {
 import { Feather } from '@expo/vector-icons';
 
 import { fetchVideo, fetchVideos } from '../data/library';
-import { fetchCollections, deleteVideo } from '../api/client';
-import { useAuth } from '../contexts/AuthContext';
+import { deleteVideo } from '../api/client';
 import { VideoItem } from '../types';
 import { CardRect } from '../components/VideoCard';
 import { MasonryColumns } from '../components/MasonryColumns';
-import { Pill } from '../components/Pill';
 import { SaveSheet } from '../components/SaveSheet';
 import { theme } from '../theme';
 
@@ -35,27 +33,9 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const PAGE_SIZE = 50;
-const quickFilters = ['All', 'TikTok', 'Instagram', 'YouTube', 'Recipes', 'Workouts', 'DIY', 'Education'];
 const skeletonCards = [0, 1, 2, 3, 4, 5];
 
 let cachedVideos: VideoItem[] | null = null;
-
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
-}
-
-function getFirstName(user: { user_metadata?: Record<string, unknown>; email?: string } | null): string | null {
-  const fullName = user?.user_metadata?.full_name;
-  if (typeof fullName === 'string' && fullName.trim()) {
-    return fullName.trim().split(/\s+/)[0];
-  }
-  const email = user?.email;
-  if (email) return email.split('@')[0];
-  return null;
-}
 
 function SkeletonBlock({ style }: { style?: object }) {
   return <View style={[styles.skeletonBlock, style]} />;
@@ -105,9 +85,7 @@ export function HomeScreen({
   onOpen: (item: VideoItem, sourceRect?: CardRect) => void;
   fabHidden?: SharedValue<number>;
 }) {
-  const { user } = useAuth();
   const [videos, setVideos] = useState<VideoItem[]>(() => cachedVideos ?? []);
-  const [collectionCount, setCollectionCount] = useState(0);
   const [loading, setLoading] = useState(() => cachedVideos === null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -280,18 +258,6 @@ export function HomeScreen({
     return () => { cancelled = true; };
   }, [updateVideos]);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchCollections()
-      .then((res) => {
-        if (!cancelled) setCollectionCount(res.items.length);
-      })
-      .catch(() => {
-        /* non-critical; leave count at 0 */
-      });
-    return () => { cancelled = true; };
-  }, []);
-
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -367,88 +333,6 @@ export function HomeScreen({
           </Text>
         </View>
       )}
-
-      <View style={styles.heroCard}>
-        <View style={styles.heroTop}>
-          <View>
-            <Text style={styles.eyebrow}>Private library</Text>
-            <Text style={styles.title}>
-              {getGreeting()}{getFirstName(user) ? `, ${getFirstName(user)}` : ''}
-            </Text>
-            <Text style={styles.subtitle}>
-              Save what matters. Browse it like a board, not like a feed.
-            </Text>
-          </View>
-          <Pressable style={styles.addButton} onPress={() => setShowSaveSheet(true)}>
-            <Feather name="plus" size={18} color={theme.colors.card} />
-          </Pressable>
-        </View>
-
-        <View style={styles.statsRow}>
-          <View style={styles.statPill}>
-            <Text style={styles.statLabel}>{videos.length} Saved</Text>
-          </View>
-          <View style={styles.statPill}>
-            <Text style={styles.statLabel}>
-              {collectionCount} {collectionCount === 1 ? 'Collection' : 'Collections'}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.searchCard}>
-        <Feather name="search" size={18} color={theme.colors.muted} />
-        <Text style={styles.searchText}>Search videos, tags, creators, or summaries</Text>
-      </View>
-
-      <View style={styles.filterRow}>
-        {quickFilters.map((item, index) => (
-          <Pill key={item} label={item} active={index === 0} />
-        ))}
-      </View>
-
-      {(() => {
-        const processingStatuses = ['queued', 'fetching_metadata', 'analyzing'];
-        const processingCount = videos.filter((v) => processingStatuses.includes(v.status)).length;
-        const queuedCount = videos.filter((v) => v.status === 'queued').length;
-        const fetchingCount = videos.filter((v) => v.status === 'fetching_metadata').length;
-        const analyzingCount = videos.filter((v) => v.status === 'analyzing').length;
-        if (queuedCount + fetchingCount + analyzingCount === 0) return null;
-
-        const stages = [
-          { label: 'Queued', key: 'queued', count: queuedCount },
-          { label: 'Fetching metadata', key: 'fetching_metadata', count: fetchingCount },
-          { label: 'Analyzing', key: 'analyzing', count: analyzingCount },
-        ];
-
-        return (
-          <>
-            <View style={styles.sectionHeader}>
-              <View>
-                <Text style={styles.sectionEyebrow}>Processing</Text>
-                <Text style={styles.sectionTitle}>
-                  {processingCount} {processingCount === 1 ? 'item' : 'items'} being analyzed
-                </Text>
-              </View>
-              <Text style={styles.sectionAction}>Tap for queue</Text>
-            </View>
-
-            <View style={styles.processingCard}>
-              {stages.map((stage) =>
-                stage.count > 0 ? (
-                  <View key={stage.key} style={styles.processingRow}>
-                    <View style={styles.processingDot} />
-                    <Text style={styles.processingLabel}>{stage.label}</Text>
-                    <View style={styles.processingCountBadge}>
-                      <Text style={styles.processingCountText}>{stage.count}</Text>
-                    </View>
-                  </View>
-                ) : null,
-              )}
-            </View>
-          </>
-        );
-      })()}
 
       <View style={styles.sectionHeader}>
         <View>
@@ -585,81 +469,6 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
     gap: 16,
   },
-  heroCard: {
-    borderRadius: theme.radius.lg,
-    backgroundColor: theme.colors.card,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: 16,
-  },
-  heroTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 16,
-  },
-  eyebrow: {
-    color: theme.colors.muted,
-    fontSize: 12,
-    marginBottom: 8,
-  },
-  title: {
-    color: theme.colors.text,
-    fontSize: 30,
-    lineHeight: 34,
-    fontWeight: '700',
-  },
-  subtitle: {
-    color: theme.colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 10,
-    maxWidth: 280,
-  },
-  addButton: {
-    width: 42,
-    height: 42,
-    borderRadius: theme.radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.text,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
-  },
-  statPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.cardSoft,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  statLabel: {
-    color: theme.colors.muted,
-    fontSize: 12,
-  },
-  searchCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.card,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  searchText: {
-    color: theme.colors.muted,
-    fontSize: 14,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -679,41 +488,6 @@ const styles = StyleSheet.create({
   },
   sectionAction: {
     color: theme.colors.accent,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  processingCard: {
-    borderRadius: theme.radius.lg,
-    backgroundColor: theme.colors.card,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: 14,
-    gap: 12,
-  },
-  processingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  processingDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: theme.colors.accent,
-  },
-  processingLabel: {
-    color: theme.colors.muted,
-    fontSize: 14,
-    flex: 1,
-  },
-  processingCountBadge: {
-    backgroundColor: theme.colors.cardSoft,
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  processingCountText: {
-    color: theme.colors.secondary,
     fontSize: 12,
     fontWeight: '600',
   },

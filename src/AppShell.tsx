@@ -16,7 +16,6 @@ import { CollectionDetailScreen } from './screens/CollectionDetailScreen';
 import { DetailScreen } from './screens/DetailScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { BottomTabs } from './components/BottomTabs';
-import { FAB } from './components/FAB';
 import { SaveSheet } from './components/SaveSheet';
 import { CardRect } from './components/VideoCard';
 
@@ -152,7 +151,6 @@ export function AppShell() {
       {isTab(activeTab) && (
         <>
           <BottomTabs activeTab={activeTab} onChange={setActiveTab as (tab: TabKey) => void} />
-          <FAB onPress={() => setShowSaveSheet(true)} hidden={fabHidden} />
         </>
       )}
 

@@ -47,6 +47,26 @@ function cleanThumbnailUrl(value?: string | null): string | undefined {
   return trimmed;
 }
 
+function extractHtmlImageUrl(value?: string | null): string | undefined {
+  const html = value?.trim();
+  if (!html) return undefined;
+
+  const attrMatch = html.match(/\b(?:thumbnail_url|poster|src)=["']([^"']+)["']/i);
+  const urlMatch = attrMatch?.[1] ?? html.match(/https:\/\/[^"'\s<>]+/i)?.[0];
+  if (!urlMatch) return undefined;
+
+  const decoded = urlMatch
+    .replace(/&amp;/g, '&')
+    .replace(/\\u0026/g, '&')
+    .trim();
+
+  return cleanThumbnailUrl(decoded);
+}
+
+function getThumbnailUrl(v: HydratedVideo): string | undefined {
+  return cleanThumbnailUrl(v.thumbnail_url) ?? extractHtmlImageUrl(v.embed_html);
+}
+
 function platformFallbackTitle(platform: string): string {
   return PLATFORM_TITLE_FALLBACKS[platform] ?? 'Saved video';
 }
@@ -64,7 +84,7 @@ function toVideoItem(v: HydratedVideo): VideoItem {
     platform: formatPlatform(v.platform),
     status: v.analysis_status === 'completed' ? 'Ready' : v.status,
     thumbnailColor: pickColor(v.id),
-    thumbnailUrl: cleanThumbnailUrl(v.thumbnail_url),
+    thumbnailUrl: getThumbnailUrl(v),
     savedAgo: formatRelativeTime(v.saved_at),
     tags: v.tags.map((t) => t.tag),
     collection: v.collections[0]?.name ?? 'General',

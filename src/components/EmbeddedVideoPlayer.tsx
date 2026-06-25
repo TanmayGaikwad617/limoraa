@@ -1,6 +1,10 @@
 import React, { useMemo } from 'react';
 import { Platform, StyleSheet } from 'react-native';
-import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import {
+  WebView,
+  type WebViewMessageEvent,
+  type WebViewNavigation,
+} from 'react-native-webview';
 
 import { theme } from '../theme';
 
@@ -348,6 +352,40 @@ function buildHtml(provider: EmbedProvider, body: string): string {
 </html>`;
 }
 
+function shouldAllowNavigation(provider: EmbedProvider, url?: string | null): boolean {
+  if (!url) return true;
+
+  if (
+    url.startsWith('about:') ||
+    url.startsWith('data:') ||
+    url.startsWith('blob:')
+  ) {
+    return true;
+  }
+
+  if (url.startsWith('intent:') || url.startsWith('instagram:')) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') {
+      return false;
+    }
+
+    if (provider === 'instagram') {
+      const host = parsed.hostname.replace(/^www\./, '').replace(/^m\./, '');
+      if (host === 'applink.instagram.com') {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function isEmbeddablePlatform(platform: string, sourceUrl?: string | null): boolean {
   return getProvider(platform, sourceUrl) !== 'unknown';
 }
@@ -389,6 +427,11 @@ export function EmbeddedVideoPlayer({
     }
   };
 
+  const provider = getProvider(platform, sourceUrl);
+  const handleShouldStartLoad = (request: WebViewNavigation) => (
+    shouldAllowNavigation(provider, request.url)
+  );
+
   return (
     <WebView
       source={source}
@@ -408,6 +451,7 @@ export function EmbeddedVideoPlayer({
       androidLayerType="hardware"
       onError={onError}
       onMessage={handleMessage}
+      onShouldStartLoadWithRequest={handleShouldStartLoad}
     />
   );
 }

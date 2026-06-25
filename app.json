@@ -2,6 +2,7 @@
   "expo": {
     "name": "ContentCategorize",
     "slug": "contentcategorize",
+    "scheme": "contentcategorize",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -18,7 +19,8 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#efe9dc"
-      }
+      },
+      "package": "com.limoraa.app"
     },
     "web": {
       "bundler": "metro"
